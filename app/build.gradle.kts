@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.google.gms.google.services)
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
@@ -43,20 +44,20 @@ android {
 }
 
 dependencies {
-    implementation("com.google.android.material:material:1.11.0")
+    implementation(libs.material)
 
-    implementation(platform("androidx.compose:compose-bom:2024.02.00"))
+    implementation(platform("androidx.compose:compose-bom:2025.07.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material:material")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.navigation:navigation-compose:2.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.2")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.2")
     implementation("io.coil-kt:coil-compose:2.4.0")
 
     implementation("com.google.firebase:firebase-auth-ktx:23.2.1")
-    implementation("com.google.android.gms:play-services-auth:20.2.0")
+    implementation("com.google.android.gms:play-services-auth:21.4.0")
 
     implementation(libs.androidx.runner)
     testImplementation(libs.junit)
