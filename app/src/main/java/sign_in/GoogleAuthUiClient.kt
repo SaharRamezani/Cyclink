@@ -4,6 +4,7 @@ import com.example.cyclink.R
 import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
+import android.util.Log
 import com.google.android.gms.auth.api.identity.BeginSignInRequest
 import com.google.android.gms.auth.api.identity.BeginSignInRequest.GoogleIdTokenRequestOptions
 import com.google.android.gms.auth.api.identity.SignInClient
@@ -21,14 +22,17 @@ class GoogleAuthUiClient(
 
     suspend fun signIn(): IntentSender? {
         val result = try {
+            Log.d("GoogleAuth", "Starting sign-in request")
             oneTapClient.beginSignIn(
                 buildSignInRequest()
             ).await()
         } catch(e: Exception) {
+            Log.e("GoogleAuth", "Sign-in failed", e)
             e.printStackTrace()
             if(e is CancellationException) throw e
             null
         }
+        Log.d("GoogleAuth", "Sign-in result: ${result?.pendingIntent}")
         return result?.pendingIntent?.intentSender
     }
 

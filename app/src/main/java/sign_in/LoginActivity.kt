@@ -2,6 +2,7 @@ package com.example.cyclink.sign_in
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -53,9 +54,11 @@ class LoginActivity : ComponentActivity() {
                                 if (state.isSignInSuccessful) {
                                     Toast.makeText(this@LoginActivity, "Sign-in successful!", Toast.LENGTH_SHORT).show()
                                     // Navigate to the next screen
-                                    startActivity(Intent(this@LoginActivity, TeamActivity::class.java))
-                                    finish()
-                                    viewModel.resetState() // Optional: reset for next session
+                                    val intent = Intent(this@LoginActivity, TeamActivity::class.java).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                    }
+                                    startActivity(intent)
+                                    viewModel.resetState()
                                 }
                             }
 
@@ -68,22 +71,12 @@ class LoginActivity : ComponentActivity() {
                                                 result.data ?: return@launch
                                             )
                                             viewModel.onSignInResult(signInResult)
+
+                                            Log.d("GoogleSignIn", "Success: ${signInResult.data?.userId}, Error: ${signInResult.errorMessage}")
                                         }
                                     }
                                 }
                             )
-
-                            LaunchedEffect(state.isSignInSuccessful) {
-                                if (state.isSignInSuccessful) {
-                                    Toast.makeText(
-                                        applicationContext,
-                                        "Sign in successful",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                    navController.navigate("profile")
-                                    viewModel.resetState()
-                                }
-                            }
 
                             SignInScreen(
                                 state = state,
