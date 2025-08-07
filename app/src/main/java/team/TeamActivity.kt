@@ -1,12 +1,8 @@
 package com.example.cyclink.team
 
-import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.ui.res.colorResource
-import com.example.cyclink.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,28 +16,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
+import com.example.cyclink.R
 
 class TeamActivity : ComponentActivity() {
-
-    private val auth = FirebaseAuth.getInstance()
-    private val db = FirebaseFirestore.getInstance()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
             MaterialTheme {
-                TeamSelectionScreen(
-                    onCreateTeam = { createTeam() },
-                    onJoinTeam = { joinTeam() }
-                )
+                var currentScreen by remember { mutableStateOf("selection") }
+
+                when (currentScreen) {
+                    "selection" -> TeamSelectionScreen(
+                        onCreateTeam = { currentScreen = "create" },
+                        onJoinTeam = { currentScreen = "join" }
+                    )
+                    "create" -> CreateTeamScreen(
+                        onBackPressed = { currentScreen = "selection" },
+                        onTeamCreated = { finish() } // Navigate to main app
+                    )
+                    "join" -> JoinTeamScreen(
+                        onBackPressed = { currentScreen = "selection" },
+                        onTeamJoined = { finish() } // Navigate to main app
+                    )
+                }
             }
         }
     }
@@ -59,7 +64,7 @@ class TeamActivity : ComponentActivity() {
                     Brush.verticalGradient(
                         colors = listOf(
                             colorResource(id = R.color.berkeley_blue),
-                            colorResource(id = R.color.non_photo_blue)
+                            colorResource(id = R.color.cerulean)
                         )
                     )
                 )
@@ -110,7 +115,7 @@ class TeamActivity : ComponentActivity() {
                         subtitle = "Connect with an existing cycling group",
                         icon = Icons.Filled.Person,
                         onClick = onJoinTeam,
-                        backgroundColor = colorResource(id = R.color.honeydew),
+                        backgroundColor = colorResource(id = R.color.non_photo_blue),
                         contentColor = colorResource(id = R.color.berkeley_blue)
                     )
                 }
@@ -192,30 +197,5 @@ class TeamActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    private fun createTeam() {
-        val user = auth.currentUser ?: return
-
-        val teamId = db.collection("teams").document().id
-        val teamData = hashMapOf(
-            "teamName" to "${user.displayName}'s Team",
-            "createdBy" to user.uid,
-            "members" to listOf(user.uid)
-        )
-
-        db.collection("teams").document(teamId).set(teamData)
-            .addOnSuccessListener {
-                Toast.makeText(this, "Team created successfully! 🎉", Toast.LENGTH_SHORT).show()
-                // TODO: Navigate to HomeActivity or TeamScreen
-            }
-            .addOnFailureListener {
-                Toast.makeText(this, "Failed to create team. Please try again.", Toast.LENGTH_SHORT).show()
-            }
-    }
-
-    private fun joinTeam() {
-        // TODO: Implement team join logic (input code or select from list)
-        Toast.makeText(this, "Team joining feature coming soon! 🚴‍♀️", Toast.LENGTH_SHORT).show()
     }
 }
