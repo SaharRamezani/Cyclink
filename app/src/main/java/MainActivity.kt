@@ -5,7 +5,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import com.example.cyclink.home.HomeActivity
-import com.example.cyclink.misc.WelcomeActivity
+import com.example.cyclink.sign_in.LoginActivity
 import com.google.firebase.auth.FirebaseAuth
 
 class MainActivity : ComponentActivity() {
@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
             startActivity(Intent(this, HomeActivity::class.java))
         } else {
             // First launch or signed out → go to Welcome (then Login)
-            startActivity(Intent(this, WelcomeActivity::class.java))
+            startActivity(Intent(this, LoginActivity::class.java))
         }
 
         finish()
