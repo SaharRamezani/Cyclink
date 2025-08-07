@@ -39,7 +39,7 @@ fun WelcomeScreen() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(colorResource(id = R.color.cyclink_green_light)),
+            .background(colorResource(id = R.color.honeydew)),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -74,7 +74,7 @@ fun WelcomeScreen() {
                 onClick = {
                     context.startActivity(Intent(context, LoginActivity::class.java))
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = colorResource(id = R.color.cyclink_green_medium)),
+                colors = ButtonDefaults.buttonColors(containerColor = colorResource(id = R.color.red_pantone)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()

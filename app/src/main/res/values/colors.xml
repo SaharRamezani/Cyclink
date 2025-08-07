@@ -8,9 +8,9 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <color name="cyclink_green_light">#A7D49B</color>
-    <color name="cyclink_green_medium">#92AC86</color>
-    <color name="cyclink_brown_medium">#696047</color>
-    <color name="cyclink_brown_dark">#55251D</color>
-    <color name="cyclink_brown_deep">#5A1807</color>
+    <color name="red_pantone">#e63946</color>
+    <color name="honeydew">#f1faee</color>
+    <color name="non_photo_blue">#a8dadc</color>
+    <color name="cerulean">#457b9d</color>
+    <color name="berkeley_blue">#1d3557</color>
 </resources>

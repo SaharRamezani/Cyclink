@@ -1,5 +1,6 @@
 package com.example.cyclink.sign_in
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -8,8 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -20,9 +21,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.cyclink.profile.ProfileScreen
-import com.example.cyclink.sign_in.GoogleAuthUiClient
-import com.example.cyclink.sign_in.SignInScreen
-import com.example.cyclink.sign_in.SignInViewModel
+import com.example.cyclink.team.TeamActivity
 import com.google.android.gms.auth.api.identity.Identity
 import kotlinx.coroutines.launch
 
@@ -42,7 +41,7 @@ class LoginActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colors.background
+                    color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
                     NavHost(navController = navController, startDestination = "sign_in") {
@@ -50,9 +49,13 @@ class LoginActivity : ComponentActivity() {
                             val viewModel = viewModel<SignInViewModel>()
                             val state by viewModel.state.collectAsStateWithLifecycle()
 
-                            LaunchedEffect(Unit) {
-                                if (googleAuthUiClient.getSignedInUser() != null) {
-                                    navController.navigate("profile")
+                            LaunchedEffect(key1 = state.isSignInSuccessful) {
+                                if (state.isSignInSuccessful) {
+                                    Toast.makeText(this@LoginActivity, "Sign-in successful!", Toast.LENGTH_SHORT).show()
+                                    // Navigate to the next screen
+                                    startActivity(Intent(this@LoginActivity, TeamActivity::class.java))
+                                    finish()
+                                    viewModel.resetState() // Optional: reset for next session
                                 }
                             }
 
