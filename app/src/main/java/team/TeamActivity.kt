@@ -1,5 +1,6 @@
 package com.example.cyclink.team
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,6 +24,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cyclink.R
+import com.example.cyclink.home.HomeActivity
 
 class TeamActivity : ComponentActivity() {
 
@@ -40,11 +42,17 @@ class TeamActivity : ComponentActivity() {
                     )
                     "create" -> CreateTeamScreen(
                         onBackPressed = { currentScreen = "selection" },
-                        onTeamCreated = { finish() } // Navigate to main app
+                        onTeamCreated = {
+                            startActivity(Intent(this@TeamActivity, HomeActivity::class.java))
+                            finish()
+                        }
                     )
                     "join" -> JoinTeamScreen(
                         onBackPressed = { currentScreen = "selection" },
-                        onTeamJoined = { finish() } // Navigate to main app
+                        onTeamJoined = {
+                            startActivity(Intent(this@TeamActivity, HomeActivity::class.java))
+                            finish()
+                        }
                     )
                 }
             }

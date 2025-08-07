@@ -272,7 +272,7 @@ private fun createTeam(
     val userTeamData = hashMapOf(
         "teamId" to teamId,
         "teamName" to teamName,
-        "role" to "leader",
+        "role" to "admin",
         "joinedAt" to System.currentTimeMillis()
     )
 
