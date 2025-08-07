@@ -1,6 +1,9 @@
 package com.example.cyclink.misc
 
 import android.content.Intent
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -17,7 +20,17 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.cyclink.sign_in.LoginActivity
 import com.example.cyclink.R
+
+class WelcomeActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            WelcomeScreen()
+        }
+    }
+}
 
 @Composable
 fun WelcomeScreen() {
@@ -27,7 +40,7 @@ fun WelcomeScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(colorResource(id = R.color.cyclink_green_light)),
-            contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
@@ -36,12 +49,10 @@ fun WelcomeScreen() {
             verticalArrangement = Arrangement.spacedBy(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-
             Image(
                 painter = painterResource(id = R.drawable.cyclink_logo),
                 contentDescription = "Cyclink Logo",
-                modifier = Modifier
-                    .size(150.dp)
+                modifier = Modifier.size(150.dp)
             )
 
             Text(
@@ -61,9 +72,9 @@ fun WelcomeScreen() {
 
             Button(
                 onClick = {
-                    // context.startActivity(Intent(context, LoginActivity::class.java))
+                    context.startActivity(Intent(context, LoginActivity::class.java))
                 },
-                colors = ButtonDefaults.buttonColors(colorResource(id = R.color.cyclink_green_medium)),
+                colors = ButtonDefaults.buttonColors(containerColor = colorResource(id = R.color.cyclink_green_medium)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
