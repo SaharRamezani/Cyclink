@@ -6,11 +6,30 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import com.example.cyclink.team.TeamMember
+import com.example.cyclink.team.TeamDashboardActivity
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -84,8 +103,23 @@ fun HomeScreen() {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Real-Time Status Section
+            // Session Summary
+            SessionSummarySection(isRiding = isRiding) { isRiding = it }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Personal Status Section
             PersonalStatusSection()
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Warnings/Alerts Panel
+            AlertsSection()
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Quick Actions
+            QuickActionsSection()
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -95,19 +129,6 @@ fun HomeScreen() {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Warnings/Alerts Panel
-            AlertsSection()
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Session Summary
-            SessionSummarySection(isRiding = isRiding) { isRiding = it }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Quick Actions
-            QuickActionsSection()
-
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
@@ -115,6 +136,8 @@ fun HomeScreen() {
 
 @Composable
 fun HeaderSection() {
+    val context = LocalContext.current
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -140,7 +163,11 @@ fun HeaderSection() {
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(colorResource(id = R.color.honeydew).copy(alpha = 0.2f)),
+                .background(colorResource(id = R.color.honeydew).copy(alpha = 0.2f))
+                .clickable {
+                    val intent = Intent(context, com.example.cyclink.account.AccountActivity::class.java)
+                    context.startActivity(intent)
+                },
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -175,7 +202,7 @@ fun PersonalStatusSection() {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                VitalMetric("Speed", "0 km/h", Icons.Filled.Favorite)
+                VitalMetric("Speed", "0 km/h", Icons.Filled.Speed)
                 VitalMetric("Cadence", "0 rpm", Icons.Filled.Refresh)
             }
 
@@ -204,31 +231,104 @@ fun PersonalStatusSection() {
 
 @Composable
 fun TeamDashboardSection() {
+    val context = LocalContext.current
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+
+    var teamMembers by remember { mutableStateOf<List<TeamMember>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // Load real team data
+    LaunchedEffect(Unit) {
+        val user = auth.currentUser
+        if (user != null) {
+            db.collection("users")
+                .document(user.uid)
+                .get()
+                .addOnSuccessListener { userDoc ->
+                    val teamData = userDoc.get("currentTeam") as? Map<String, Any>
+                    if (teamData != null) {
+                        val teamId = teamData["teamId"] as? String ?: ""
+
+                        if (teamId.isNotEmpty()) {
+                            db.collection("teams")
+                                .document(teamId)
+                                .get()
+                                .addOnSuccessListener { teamDoc ->
+                                    val members = teamDoc.get("members") as? List<*> ?: emptyList<String>()
+                                    val memberNames = teamDoc.get("memberNames") as? List<*> ?: emptyList<String>()
+
+                                    val memberList = mutableListOf<TeamMember>()
+                                    members.take(3).forEachIndexed { index, memberId ->
+                                        if (memberId is String && index < memberNames.size) {
+                                            val memberName = memberNames[index] as? String ?: "Unknown"
+                                            memberList.add(
+                                                TeamMember(
+                                                    id = memberId,
+                                                    name = memberName,
+                                                    status = if (memberId == user.uid) "online" else listOf("online", "riding", "offline").random()
+                                                )
+                                            )
+                                        }
+                                    }
+                                    teamMembers = memberList
+                                    isLoading = false
+                                }
+                        } else {
+                            isLoading = false
+                        }
+                    } else {
+                        isLoading = false
+                    }
+                }
+        }
+    }
+
     StatusCard(
         title = "Team Dashboard",
-        icon = Icons.Filled.Favorite
+        icon = Icons.Filled.Group
     ) {
         Column {
-            // Team members list
-            repeat(3) { index ->
-                TeamMemberItem(
-                    name = "Member ${index + 1}",
-                    distance = "${(index + 1) * 50}m away",
-                    healthStatus = when (index % 3) {
-                        0 -> "Good"
-                        1 -> "Warning"
-                        else -> "Critical"
-                    }
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = colorResource(id = R.color.berkeley_blue),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            } else if (teamMembers.isEmpty()) {
+                Text(
+                    text = "No team members found",
+                    color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.6f),
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(vertical = 16.dp)
                 )
-                if (index < 2) {
-                    Spacer(modifier = Modifier.height(8.dp))
+            } else {
+                // Real team members list
+                teamMembers.forEachIndexed { index, member ->
+                    TeamMemberItem(
+                        name = member.name,
+                        distance = "${(index + 1) * 50}m away",
+                        healthStatus = member.status
+                    )
+                    if (index < teamMembers.size - 1) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             Button(
-                onClick = { },
+                onClick = {
+                    val intent = Intent(context, TeamDashboardActivity::class.java)
+                    context.startActivity(intent)
+                },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.1f),
@@ -237,8 +337,7 @@ fun TeamDashboardSection() {
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    text = "Expand Full Dashboard",
-                    fontSize = 14.sp,
+                    text = "View Full Dashboard",
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -267,7 +366,7 @@ fun SessionSummarySection(
 ) {
     StatusCard(
         title = if (isRiding) "Current Ride" else "Session Summary",
-        icon = Icons.Filled.Favorite
+        icon = Icons.Filled.DirectionsBike
     ) {
         Column {
             if (isRiding) {
@@ -302,7 +401,7 @@ fun SessionSummarySection(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Icon(
-                    imageVector = if (isRiding) Icons.Filled.Favorite else Icons.Filled.PlayArrow,
+                    imageVector = if (isRiding) Icons.Filled.Stop else Icons.Filled.PlayArrow,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp)
                 )
@@ -321,7 +420,7 @@ fun SessionSummarySection(
 fun QuickActionsSection() {
     StatusCard(
         title = "Quick Actions",
-        icon = Icons.Filled.Favorite
+        icon = Icons.Filled.Dashboard
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -337,7 +436,7 @@ fun QuickActionsSection() {
                 ) { }
 
                 QuickActionButton(
-                    text = "Sync Sensors",
+                    text = "Sync",
                     icon = Icons.Filled.Refresh,
                     modifier = Modifier.weight(1f)
                 ) { }

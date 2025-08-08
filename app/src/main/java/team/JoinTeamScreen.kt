@@ -8,9 +8,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -76,7 +77,7 @@ fun JoinTeamScreen(
                     )
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
                         modifier = Modifier.size(24.dp)
                     )
@@ -104,7 +105,7 @@ fun JoinTeamScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Build,
+                    imageVector = Icons.Filled.Group,
                     contentDescription = null,
                     tint = colorResource(id = R.color.honeydew),
                     modifier = Modifier.size(40.dp)
@@ -311,11 +312,7 @@ private fun joinTeam(
                     db.collection("users").document(user.uid)
                         .update("currentTeam", userTeamData)
                         .addOnSuccessListener {
-                            Toast.makeText(
-                                context,
-                                "Successfully joined ${teamData["teamName"]}!",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            println("User document updated successfully")
                             onSuccess()
                         }
                         .addOnFailureListener {

@@ -25,8 +25,19 @@
             android:name=".home.HomeActivity"
             android:exported="false"
             android:theme="@style/Theme.Cyclink" />
+        <activity
+            android:name=".account.AccountActivity"
+            android:exported="false" />
         <activity android:name=".sign_in.LoginActivity" />
         <activity android:name=".team.TeamActivity" />
-
+        <activity
+            android:name=".team.TeamDashboardActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.MemberDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".team.MemberMapActivity"
+            android:exported="false" />
     </application>
 </manifest>

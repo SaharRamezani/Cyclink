@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -121,7 +122,7 @@ class TeamActivity : ComponentActivity() {
                     TeamActionCard(
                         title = "Join Existing Team",
                         subtitle = "Connect with an existing cycling group",
-                        icon = Icons.Filled.Person,
+                        icon = Icons.Filled.Groups,
                         onClick = onJoinTeam,
                         backgroundColor = colorResource(id = R.color.non_photo_blue),
                         contentColor = colorResource(id = R.color.berkeley_blue)

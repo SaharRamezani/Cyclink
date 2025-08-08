@@ -8,8 +8,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -73,7 +74,7 @@ fun CreateTeamScreen(
                     onClick = onBackPressed
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
                         tint = colorResource(id = R.color.honeydew)
                     )
@@ -101,7 +102,7 @@ fun CreateTeamScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Face,
+                    imageVector = Icons.Filled.Groups,
                     contentDescription = null,
                     tint = colorResource(id = R.color.honeydew),
                     modifier = Modifier.size(40.dp)
