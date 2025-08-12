@@ -73,8 +73,8 @@ fun HomeScreen() {
     var isRiding by remember { mutableStateOf(false) }
 
     // Sensor data states
-    var heartRate by remember { mutableStateOf(72.0) }
-    var breathingRate by remember { mutableStateOf(18.0) }
+    var heartRate by remember { mutableStateOf(0.0) }
+    var breathingRate by remember { mutableStateOf(0.0) }
     var speed by remember { mutableStateOf(0.0) }
     var cadence by remember { mutableStateOf(0.0) }
     var currentGPS by remember { mutableStateOf<GPSData?>(null) }
