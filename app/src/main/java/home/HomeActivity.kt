@@ -5,6 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
 import com.example.cyclink.team.TeamMember
 import com.example.cyclink.team.TeamDashboardActivity
@@ -15,21 +18,7 @@ import android.content.Intent
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.DirectionsBike
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,167 +40,20 @@ import com.example.cyclink.helpers.MQTTHelper
 import com.example.cyclink.helpers.GPSHelper
 import com.example.cyclink.helpers.SensorData
 import com.example.cyclink.helpers.MQTTSensorData
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import kotlinx.coroutines.delay
+import kotlin.math.sqrt
+import org.json.JSONObject
 
 class HomeActivity : ComponentActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         setContent {
             MaterialTheme {
                 HomeScreen()
-            }
-        }
-    }
-}
-
-@Composable
-fun HomeScreen() {
-    val context = LocalContext.current
-    val scrollState = rememberScrollState()
-    var userRole by remember { mutableStateOf("member") }
-    var isRiding by remember { mutableStateOf(false) }
-
-    // Sensor data states
-    var heartRate by remember { mutableStateOf(0.0) }
-    var breathingRate by remember { mutableStateOf(0.0) }
-    var speed by remember { mutableStateOf(0.0) }
-    var cadence by remember { mutableStateOf(0.0) }
-    var currentGPS by remember { mutableStateOf<GPSData?>(null) }
-
-    // Initialize helpers
-    val bluetoothConnection = remember { BluetoothConnection(context) }
-    val mqttHelper = remember { MQTTHelper(context) }
-    val gpsHelper = remember { GPSHelper(context) }
-
-    // Handle sensor data updates
-    val onSensorDataReceived: (SensorData) -> Unit = { sensorData ->
-        when (sensorData.measureType) {
-            "heart_rate" -> sensorData.getHeartRate()?.let { heartRate = it }
-            "breathing_rate" -> sensorData.getBreathingRate()?.let { breathingRate = it }
-            "speed" -> sensorData.getSpeed()?.let { speed = it }
-            "cadence" -> sensorData.getCadence()?.let { cadence = it }
-        }
-
-        // Send to MQTT
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user != null) {
-            val mqttData = MQTTSensorData(
-                userId = user.uid,
-                date = System.currentTimeMillis(),
-                sensorData = sensorData,
-                gpsData = currentGPS,
-                deviceId = android.provider.Settings.Secure.getString(
-                    context.contentResolver,
-                    android.provider.Settings.Secure.ANDROID_ID
-                )
-            )
-            mqttHelper.publishSensorData(mqttData)
-        }
-    }
-
-    // Start services when riding
-    LaunchedEffect(isRiding) {
-        if (isRiding) {
-            bluetoothConnection.startServer(onSensorDataReceived)
-            gpsHelper.startLocationUpdates { gpsData ->
-                currentGPS = gpsData
-            }
-            mqttHelper.connect()
-        } else {
-            bluetoothConnection.stopServer()
-            gpsHelper.stopLocationUpdates()
-            mqttHelper.disconnect()
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        colorResource(id = R.color.berkeley_blue),
-                        colorResource(id = R.color.cerulean)
-                    )
-                )
-            )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(16.dp)
-        ) {
-            HeaderSection()
-            Spacer(modifier = Modifier.height(16.dp))
-            SessionSummarySection(isRiding = isRiding) { isRiding = it }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            PersonalStatusSection(
-                heartRate = heartRate,
-                breathingRate = breathingRate,
-                speed = speed,
-                cadence = cadence
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-            TeamDashboardSection()
-            Spacer(modifier = Modifier.height(16.dp))
-            AlertsSection()
-            Spacer(modifier = Modifier.height(16.dp))
-            QuickActionsSection()
-        }
-    }
-}
-
-@Composable
-fun PersonalStatusSection(
-    heartRate: Double,
-    breathingRate: Double,
-    speed: Double,
-    cadence: Double
-) {
-    StatusCard(
-        title = "Personal Status",
-        icon = Icons.Filled.Favorite
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                VitalMetric("Heart Rate", "${heartRate.toInt()} bpm", Icons.Filled.Favorite)
-                VitalMetric("Breathing", "${breathingRate.toInt()} /min", Icons.Filled.Favorite)
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                VitalMetric("Speed", "${String.format("%.1f", speed)} km/h", Icons.Filled.Speed)
-                VitalMetric("Cadence", "${cadence.toInt()} rpm", Icons.Filled.Refresh)
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.LocationOn,
-                    contentDescription = null,
-                    tint = colorResource(id = R.color.non_photo_blue),
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "GPS Connected • Sensors Active",
-                    fontSize = 12.sp,
-                    color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.7f)
-                )
             }
         }
     }
@@ -230,14 +72,14 @@ fun HeaderSection() {
     ) {
         Column {
             Text(
-                text = "CycLink",
-                fontSize = 28.sp,
+                text = "Cyclink",
+                fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = colorResource(id = R.color.honeydew)
             )
             Text(
-                text = "Ready to ride together",
-                fontSize = 14.sp,
+                text = "Ready to ride toghether?",
+                fontSize = 16.sp,
                 color = colorResource(id = R.color.non_photo_blue)
             )
         }
@@ -246,19 +88,66 @@ fun HeaderSection() {
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(colorResource(id = R.color.honeydew).copy(alpha = 0.2f))
+                .background(colorResource(id = R.color.cerulean))
                 .clickable {
-                    val intent = Intent(context, com.example.cyclink.account.AccountActivity::class.java)
-                    context.startActivity(intent)
+                    try {
+                        // Try AccountActivity first
+                        val accountIntent = Intent()
+                        accountIntent.setClassName(context.packageName, "com.example.cyclink.account.AccountActivity")
+                        context.startActivity(accountIntent)
+                        Log.d("HomeActivity", "AccountActivity navigation successful")
+                    } catch (e: Exception) {
+                        try {
+                            // Fallback to ProfileActivity
+                            val profileIntent = Intent()
+                            profileIntent.setClassName(context.packageName, "com.example.cyclink.profile.ProfileActivity")
+                            context.startActivity(profileIntent)
+                            Log.d("HomeActivity", "ProfileActivity navigation successful")
+                        } catch (e2: Exception) {
+                            Log.e("HomeActivity", "Profile/Account navigation failed", e2)
+                            // Show a toast or handle the error appropriately
+                        }
+                    }
                 },
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Filled.Person,
+                Icons.Filled.Person,
                 contentDescription = "Profile",
                 tint = colorResource(id = R.color.honeydew),
                 modifier = Modifier.size(24.dp)
             )
+        }
+    }
+}
+
+@Composable
+fun PersonalStatusSection(
+    heartRate: Double,
+    breathFrequency: Double,
+    speed: Double,
+    intensity: Double
+) {
+    StatusCard(
+        title = "Personal Status",
+        icon = Icons.Filled.Favorite
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                VitalMetric("Heart Rate", "${heartRate.toInt()} bpm", Icons.Filled.Favorite)
+                VitalMetric("Breath Freq", "${breathFrequency.toInt()}/min", Icons.Filled.Air)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                VitalMetric("Speed", "${String.format("%.1f", speed)} m/s", Icons.Filled.Speed)
+                VitalMetric("Intensity", "${String.format("%.1f", intensity)}", Icons.Filled.FitnessCenter)
+            }
         }
     }
 }
@@ -378,46 +267,19 @@ fun TeamDashboardSection() {
 }
 
 @Composable
-fun AlertsSection() {
+fun SessionSummarySection(isRiding: Boolean, onRideToggle: (Boolean) -> Unit) {
     StatusCard(
-        title = "Alerts & Warnings",
-        icon = Icons.Filled.Warning
+        title = "Session Summary",
+        icon = Icons.Filled.Dashboard
     ) {
         Column {
-            AlertItem("All sensors connected", "Good", true)
-            AlertItem("Heart rate normal", "Good", true)
-            AlertItem("Hydration reminder", "Info", false)
-        }
-    }
-}
-
-@Composable
-fun SessionSummarySection(
-    isRiding: Boolean,
-    onRideToggle: (Boolean) -> Unit
-) {
-    StatusCard(
-        title = if (isRiding) "Current Ride" else "Session Summary",
-        icon = Icons.Filled.DirectionsBike
-    ) {
-        Column {
-            if (isRiding) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    StatItem("Duration", "45:30")
-                    StatItem("Distance", "12.5 km")
-                    StatItem("Elevation", "150 m")
-                }
-            } else {
-                Text(
-                    text = "Ready to start your next adventure?",
-                    fontSize = 14.sp,
-                    color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.7f),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                StatItem("Duration", "45 min")
+                StatItem("Distance", "12.3 km")
+                StatItem("Avg Speed", "4.6 m/s")
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -426,10 +288,8 @@ fun SessionSummarySection(
                 onClick = { onRideToggle(!isRiding) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isRiding) colorResource(id = R.color.red_pantone) else colorResource(id = R.color.non_photo_blue),
-                    contentColor = colorResource(id = R.color.honeydew)
-                ),
-                shape = RoundedCornerShape(12.dp)
+                    containerColor = if (isRiding) colorResource(id = R.color.red_pantone) else colorResource(id = R.color.cerulean)
+                )
             ) {
                 Icon(
                     imageVector = if (isRiding) Icons.Filled.Stop else Icons.Filled.PlayArrow,
@@ -438,11 +298,394 @@ fun SessionSummarySection(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isRiding) "End Ride" else "Start Ride",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
+                    if (isRiding) "Stop Ride" else "Start Ride",
+                    color = colorResource(id = R.color.honeydew)
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun StatusCard(
+    title: String,
+    icon: ImageVector,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = colorResource(id = R.color.honeydew)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = title,
+                    tint = colorResource(id = R.color.cerulean),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = title,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorResource(id = R.color.berkeley_blue)
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+fun VitalMetric(label: String, value: String, icon: ImageVector) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(8.dp)
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = colorResource(id = R.color.cerulean),
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = value,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = colorResource(id = R.color.berkeley_blue)
+        )
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = colorResource(id = R.color.cerulean)
+        )
+    }
+}
+
+@Composable
+fun TeamMemberItem(name: String, distance: String, healthStatus: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = name,
+            fontWeight = FontWeight.Medium,
+            color = colorResource(id = R.color.berkeley_blue)
+        )
+        Icon(
+            if (healthStatus == "Good") Icons.Filled.CheckCircle else Icons.Filled.Warning,
+            contentDescription = healthStatus,
+            tint = if (healthStatus == "Good") colorResource(id = R.color.cerulean) else colorResource(id = R.color.red_pantone),
+            modifier = Modifier.size(16.dp)
+        )
+    }
+}
+
+@Composable
+fun AlertItem(message: String, type: String, isGood: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(
+            if (isGood) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+            contentDescription = type,
+            tint = if (isGood) colorResource(id = R.color.cerulean) else colorResource(id = R.color.red_pantone),
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = message,
+            color = colorResource(id = R.color.berkeley_blue)
+        )
+    }
+}
+
+@Composable
+fun StatItem(label: String, value: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = value,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = colorResource(id = R.color.cerulean)
+        )
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = colorResource(id = R.color.cerulean)
+        )
+    }
+}
+
+@Composable
+fun HomeScreen() {
+    val context = LocalContext.current
+    val scrollState = rememberScrollState()
+    var userRole by remember { mutableStateOf("member") }
+    var isRiding by remember { mutableStateOf(false) }
+
+    // Sensor data states - only for Personal Status
+    var heartRate by remember { mutableStateOf(0.0) }
+    var breathFrequency by remember { mutableStateOf(0.0) }
+    var speed by remember { mutableStateOf(0.0) }
+    var intensity by remember { mutableStateOf(0.0) }
+    var currentGPS by remember { mutableStateOf<GPSData?>(null) }
+
+    // Acceleration data for intensity calculation
+    var accelerationX by remember { mutableStateOf(0.0) }
+    var accelerationY by remember { mutableStateOf(0.0) }
+    var accelerationZ by remember { mutableStateOf(0.0) }
+    var lastDataReceived by remember { mutableStateOf(0L) }
+
+    // Initialize helpers
+    val bluetoothConnection = remember { BluetoothConnection(context) }
+    val mqttHelper = remember { MQTTHelper(context) }
+    val gpsHelper = remember { GPSHelper(context) }
+
+    // Phone sensors for speed calculation
+    val sensorManager = remember { context.getSystemService(android.content.Context.SENSOR_SERVICE) as SensorManager }
+    val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+
+    // Phone sensor listener for speed calculation
+    DisposableEffect(isRiding) {
+        val sensorListener = object : SensorEventListener {
+            var lastAcceleration = 9.8f
+            var currentAcceleration = 9.8f
+            var velocityEstimate = 0.0
+
+            override fun onSensorChanged(event: SensorEvent?) {
+                if (event?.sensor?.type == Sensor.TYPE_ACCELEROMETER && isRiding) {
+                    val x = event.values[0]
+                    val y = event.values[1]
+                    val z = event.values[2]
+
+                    lastAcceleration = currentAcceleration
+                    currentAcceleration = sqrt(x * x + y * y + z * z)
+                    val delta = currentAcceleration - lastAcceleration
+                    velocityEstimate += delta * 0.1
+                    speed = kotlin.math.abs(velocityEstimate * 0.5)
+
+                    Log.d("HomeActivity", "📱 Phone speed: $speed m/s")
+                }
+            }
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+
+        if (isRiding && accelerometer != null) {
+            sensorManager.registerListener(sensorListener, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
+            Log.d("HomeActivity", "📱 Phone accelerometer registered")
+        }
+
+        onDispose {
+            sensorManager.unregisterListener(sensorListener)
+            Log.d("HomeActivity", "📱 Phone accelerometer unregistered")
+        }
+    }
+
+    // Enhanced Bluetooth data handler matching your simulator format
+    val onBluetoothDataReceived: (SensorData) -> Unit = { sensorData ->
+        Log.d("HomeActivity", "🔥 BLUETOOTH DATA RECEIVED:")
+        Log.d("HomeActivity", "📊 Type: '${sensorData.measureType}'")
+        Log.d("HomeActivity", "📊 Value: ${sensorData.value}")
+        Log.d("HomeActivity", "📊 User ID: ${sensorData.userId}")
+        Log.d("HomeActivity", "📊 Date: ${sensorData.date}")
+
+        lastDataReceived = System.currentTimeMillis()
+
+        // Convert value list to double (take first value from array)
+        val doubleValue = if (sensorData.value.isNotEmpty()) {
+            sensorData.value[0]
+        } else {
+            0.0
+        }
+
+        // Handle measurement types exactly matching your simulator
+        when (sensorData.measureType.lowercase()) {
+            "heartrate" -> {
+                heartRate = doubleValue
+                Log.d("HomeActivity", "❤️ Heart Rate updated: $doubleValue bpm")
+            }
+            "breathfrequency" -> {
+                breathFrequency = doubleValue
+                Log.d("HomeActivity", "🫁 Breath Frequency updated: $doubleValue /min")
+            }
+            "accelerationx" -> {
+                accelerationX = doubleValue
+                intensity = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
+                Log.d("HomeActivity", "📐 AccelerationX: $doubleValue → Intensity: $intensity")
+            }
+            "accelerationy" -> {
+                accelerationY = doubleValue
+                intensity = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
+                Log.d("HomeActivity", "📐 AccelerationY: $doubleValue → Intensity: $intensity")
+            }
+            "accelerationz" -> {
+                accelerationZ = doubleValue
+                intensity = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
+                Log.d("HomeActivity", "📐 AccelerationZ: $doubleValue → Intensity: $intensity")
+            }
+            "respiration" -> {
+                Log.d("HomeActivity", "🌬️ Respiration: $doubleValue")
+            }
+            "position" -> {
+                Log.d("HomeActivity", "📍 Position: $doubleValue")
+            }
+            else -> {
+                Log.w("HomeActivity", "❓ Unknown measurement: ${sensorData.measureType}")
+            }
+        }
+
+        // Send to MQTT
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user != null) {
+            val mqttData = MQTTSensorData(
+                userId = user.uid,
+                date = System.currentTimeMillis(),
+                sensorData = sensorData,
+                gpsData = currentGPS,
+                deviceId = android.provider.Settings.Secure.getString(
+                    context.contentResolver,
+                    android.provider.Settings.Secure.ANDROID_ID
+                )
+            )
+            mqttHelper.publishSensorData(mqttData)
+            Log.d("HomeActivity", "📡 Data sent to MQTT")
+        }
+    }
+
+    // Bluetooth permissions
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        Log.d("HomeActivity", "=== BLUETOOTH PERMISSIONS ===")
+        permissions.forEach { (permission, granted) ->
+            Log.d("HomeActivity", "$permission: $granted")
+        }
+
+        val bluetoothGranted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            permissions[android.Manifest.permission.BLUETOOTH_CONNECT] == true
+        } else true
+
+        val locationGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
+
+        if (bluetoothGranted && locationGranted && isRiding) {
+            bluetoothConnection.startServer(onBluetoothDataReceived)
+            Log.d("HomeActivity", "🔵 Bluetooth server started")
+        }
+    }
+
+    // Monitor data reception timeout
+    LaunchedEffect(isRiding) {
+        if (isRiding) {
+            while (isRiding) {
+                delay(10000) // Check every 10 seconds
+                val currentTime = System.currentTimeMillis()
+                if (lastDataReceived > 0 && (currentTime - lastDataReceived) > 15000) {
+                    Log.w("HomeActivity", "⏰ No Bluetooth data received for 15+ seconds")
+                } else if (lastDataReceived == 0L) {
+                    Log.w("HomeActivity", "⏰ No Bluetooth data received yet")
+                } else {
+                    Log.d("HomeActivity", "✅ Bluetooth data flow normal")
+                }
+            }
+        }
+    }
+
+    // Start/stop services based on ride state
+    LaunchedEffect(isRiding) {
+        Log.d("HomeActivity", "🚴 RIDE STATE: $isRiding")
+
+        if (isRiding) {
+            Log.d("HomeActivity", "=== STARTING RIDE SERVICES ===")
+
+            // Request Bluetooth permissions
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                bluetoothPermissionLauncher.launch(
+                    arrayOf(
+                        android.Manifest.permission.BLUETOOTH_CONNECT,
+                        android.Manifest.permission.ACCESS_FINE_LOCATION
+                    )
+                )
+            } else {
+                bluetoothPermissionLauncher.launch(
+                    arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                )
+            }
+
+            // Start GPS
+            gpsHelper.startLocationUpdates { gpsData ->
+                currentGPS = gpsData
+                Log.d("HomeActivity", "📍 GPS: ${gpsData.latitude}, ${gpsData.longitude}")
+            }
+
+            // Start MQTT
+            mqttHelper.connect()
+
+        } else {
+            Log.d("HomeActivity", "=== STOPPING RIDE SERVICES ===")
+            bluetoothConnection.stopServer()
+            gpsHelper.stopLocationUpdates()
+            mqttHelper.disconnect()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        colorResource(id = R.color.berkeley_blue),
+                        colorResource(id = R.color.cerulean)
+                    )
+                )
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            HeaderSection()
+            PersonalStatusSection(heartRate, breathFrequency, speed, intensity)
+            SessionSummarySection(isRiding) { newState -> isRiding = newState }
+            AlertsSection()
+            QuickActionsSection()
+            TeamDashboardSection()
+        }
+    }
+}
+
+@Composable
+fun AlertsSection() {
+    StatusCard(
+        title = "Alerts & Notifications",
+        icon = Icons.Filled.Warning
+    ) {
+        Column {
+            AlertItem("All vitals normal", "info", true)
+            Spacer(modifier = Modifier.height(8.dp))
+            AlertItem("GPS connection stable", "success", true)
+            Spacer(modifier = Modifier.height(8.dp))
+            AlertItem("Team member needs assistance", "warning", false)
         }
     }
 }
@@ -479,169 +722,6 @@ fun QuickActionsSection() {
                 modifier = Modifier.fillMaxWidth()
             ) { }
         }
-    }
-}
-
-@Composable
-fun StatusCard(
-    title: String,
-    icon: ImageVector,
-    content: @Composable () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = colorResource(id = R.color.honeydew)
-        ),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = colorResource(id = R.color.berkeley_blue),
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colorResource(id = R.color.berkeley_blue)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            content()
-        }
-    }
-}
-
-@Composable
-fun VitalMetric(label: String, value: String, icon: ImageVector) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = colorResource(id = R.color.red_pantone),
-            modifier = Modifier.size(20.dp)
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = value,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = colorResource(id = R.color.berkeley_blue)
-        )
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.6f)
-        )
-    }
-}
-
-@Composable
-fun TeamMemberItem(name: String, distance: String, healthStatus: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(colorResource(id = R.color.non_photo_blue).copy(alpha = 0.3f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = name.first().toString(),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colorResource(id = R.color.berkeley_blue)
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = name,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colorResource(id = R.color.berkeley_blue)
-                )
-                Text(
-                    text = distance,
-                    fontSize = 12.sp,
-                    color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.6f)
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .size(12.dp)
-                .clip(CircleShape)
-                .background(
-                    when (healthStatus) {
-                        "Good" -> colorResource(id = R.color.non_photo_blue)
-                        "Warning" -> colorResource(id = R.color.cerulean)
-                        else -> colorResource(id = R.color.red_pantone)
-                    }
-                )
-        )
-    }
-}
-
-@Composable
-fun AlertItem(message: String, type: String, isGood: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = message,
-            fontSize = 14.sp,
-            color = colorResource(id = R.color.berkeley_blue),
-            modifier = Modifier.weight(1f)
-        )
-
-        Icon(
-            imageVector = if (isGood) Icons.Filled.CheckCircle else Icons.Filled.Info,
-            contentDescription = null,
-            tint = if (isGood) colorResource(id = R.color.non_photo_blue) else colorResource(id = R.color.red_pantone),
-            modifier = Modifier.size(16.dp)
-        )
-    }
-}
-
-@Composable
-fun StatItem(label: String, value: String) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = value,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = colorResource(id = R.color.berkeley_blue)
-        )
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.6f)
-        )
     }
 }
 
