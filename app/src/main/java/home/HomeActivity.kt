@@ -45,6 +45,12 @@ import androidx.compose.ui.unit.sp
 import com.example.cyclink.R
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.example.cyclink.helpers.GPSData
+import com.example.cyclink.helpers.BluetoothConnection
+import com.example.cyclink.helpers.MQTTHelper
+import com.example.cyclink.helpers.GPSHelper
+import com.example.cyclink.helpers.SensorData
+import com.example.cyclink.helpers.MQTTSensorData
 
 class HomeActivity : ComponentActivity() {
 
@@ -61,22 +67,61 @@ class HomeActivity : ComponentActivity() {
 
 @Composable
 fun HomeScreen() {
+    val context = LocalContext.current
     val scrollState = rememberScrollState()
     var userRole by remember { mutableStateOf("member") }
     var isRiding by remember { mutableStateOf(false) }
 
-    // Get user role from Firestore
-    LaunchedEffect(Unit) {
+    // Sensor data states
+    var heartRate by remember { mutableStateOf(72.0) }
+    var breathingRate by remember { mutableStateOf(18.0) }
+    var speed by remember { mutableStateOf(0.0) }
+    var cadence by remember { mutableStateOf(0.0) }
+    var currentGPS by remember { mutableStateOf<GPSData?>(null) }
+
+    // Initialize helpers
+    val bluetoothConnection = remember { BluetoothConnection(context) }
+    val mqttHelper = remember { MQTTHelper(context) }
+    val gpsHelper = remember { GPSHelper(context) }
+
+    // Handle sensor data updates
+    val onSensorDataReceived: (SensorData) -> Unit = { sensorData ->
+        when (sensorData.measureType) {
+            "heart_rate" -> sensorData.getHeartRate()?.let { heartRate = it }
+            "breathing_rate" -> sensorData.getBreathingRate()?.let { breathingRate = it }
+            "speed" -> sensorData.getSpeed()?.let { speed = it }
+            "cadence" -> sensorData.getCadence()?.let { cadence = it }
+        }
+
+        // Send to MQTT
         val user = FirebaseAuth.getInstance().currentUser
         if (user != null) {
-            FirebaseFirestore.getInstance()
-                .collection("users")
-                .document(user.uid)
-                .get()
-                .addOnSuccessListener { document ->
-                    val teamData = document.get("currentTeam") as? Map<String, Any>
-                    userRole = teamData?.get("role") as? String ?: "member"
-                }
+            val mqttData = MQTTSensorData(
+                userId = user.uid,
+                date = System.currentTimeMillis(),
+                sensorData = sensorData,
+                gpsData = currentGPS,
+                deviceId = android.provider.Settings.Secure.getString(
+                    context.contentResolver,
+                    android.provider.Settings.Secure.ANDROID_ID
+                )
+            )
+            mqttHelper.publishSensorData(mqttData)
+        }
+    }
+
+    // Start services when riding
+    LaunchedEffect(isRiding) {
+        if (isRiding) {
+            bluetoothConnection.startServer(onSensorDataReceived)
+            gpsHelper.startLocationUpdates { gpsData ->
+                currentGPS = gpsData
+            }
+            mqttHelper.connect()
+        } else {
+            bluetoothConnection.stopServer()
+            gpsHelper.stopLocationUpdates()
+            mqttHelper.disconnect()
         }
     }
 
@@ -98,38 +143,76 @@ fun HomeScreen() {
                 .verticalScroll(scrollState)
                 .padding(16.dp)
         ) {
-            // Header
             HeaderSection()
-
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Session Summary
             SessionSummarySection(isRiding = isRiding) { isRiding = it }
-
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Personal Status Section
-            PersonalStatusSection()
+            PersonalStatusSection(
+                heartRate = heartRate,
+                breathingRate = breathingRate,
+                speed = speed,
+                cadence = cadence
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Warnings/Alerts Panel
+            TeamDashboardSection()
+            Spacer(modifier = Modifier.height(16.dp))
             AlertsSection()
-
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Quick Actions
             QuickActionsSection()
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Team Dashboard (Only for admin)
-            if (userRole == "admin") {
-                TeamDashboardSection()
-                Spacer(modifier = Modifier.height(16.dp))
+@Composable
+fun PersonalStatusSection(
+    heartRate: Double,
+    breathingRate: Double,
+    speed: Double,
+    cadence: Double
+) {
+    StatusCard(
+        title = "Personal Status",
+        icon = Icons.Filled.Favorite
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                VitalMetric("Heart Rate", "${heartRate.toInt()} bpm", Icons.Filled.Favorite)
+                VitalMetric("Breathing", "${breathingRate.toInt()} /min", Icons.Filled.Favorite)
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                VitalMetric("Speed", "${String.format("%.1f", speed)} km/h", Icons.Filled.Speed)
+                VitalMetric("Cadence", "${cadence.toInt()} rpm", Icons.Filled.Refresh)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.LocationOn,
+                    contentDescription = null,
+                    tint = colorResource(id = R.color.non_photo_blue),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "GPS Connected • Sensors Active",
+                    fontSize = 12.sp,
+                    color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.7f)
+                )
+            }
         }
     }
 }
@@ -181,55 +264,6 @@ fun HeaderSection() {
 }
 
 @Composable
-fun PersonalStatusSection() {
-    StatusCard(
-        title = "Personal Status",
-        icon = Icons.Filled.Favorite
-    ) {
-        Column {
-            // Vitals Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                VitalMetric("Heart Rate", "72 bpm", Icons.Filled.Favorite)
-                VitalMetric("Breathing", "18 /min", Icons.Filled.Favorite)
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                VitalMetric("Speed", "0 km/h", Icons.Filled.Speed)
-                VitalMetric("Cadence", "0 rpm", Icons.Filled.Refresh)
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // GPS Status
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.LocationOn,
-                    contentDescription = null,
-                    tint = colorResource(id = R.color.non_photo_blue),
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "GPS Connected • Sensors Active",
-                    fontSize = 12.sp,
-                    color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.7f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
 fun TeamDashboardSection() {
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
@@ -238,7 +272,6 @@ fun TeamDashboardSection() {
     var teamMembers by remember { mutableStateOf<List<TeamMember>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // Load real team data
     LaunchedEffect(Unit) {
         val user = auth.currentUser
         if (user != null) {
@@ -309,7 +342,6 @@ fun TeamDashboardSection() {
                     modifier = Modifier.padding(vertical = 16.dp)
                 )
             } else {
-                // Real team members list
                 teamMembers.forEachIndexed { index, member ->
                     TeamMemberItem(
                         name = member.name,
@@ -370,7 +402,6 @@ fun SessionSummarySection(
     ) {
         Column {
             if (isRiding) {
-                // Current ride stats
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween

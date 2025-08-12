@@ -43,6 +43,9 @@ android {
 dependencies {
     implementation(libs.material)
 
+    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")
+
     implementation("androidx.compose.material:material-icons-extended:1.5.4")
     implementation(platform("androidx.compose:compose-bom:2025.07.00"))
     implementation("androidx.compose.material3:material3")
