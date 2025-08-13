@@ -267,7 +267,62 @@ fun TeamDashboardSection() {
 }
 
 @Composable
-fun SessionSummarySection(isRiding: Boolean, onRideToggle: (Boolean) -> Unit) {
+fun SessionSummarySection(
+    isRiding: Boolean,
+    onRideToggle: (Boolean) -> Unit,
+    currentGPS: GPSData?,
+    speed: Double
+) {
+    var startTime by remember { mutableStateOf(0L) }
+    var duration by remember { mutableStateOf(0L) }
+    var totalDistance by remember { mutableStateOf(0.0) }
+    var lastGPS by remember { mutableStateOf<GPSData?>(null) }
+    var avgSpeed by remember { mutableStateOf(0.0) }
+
+    // Timer for duration tracking
+    LaunchedEffect(isRiding) {
+        if (isRiding) {
+            startTime = System.currentTimeMillis()
+            totalDistance = 0.0
+            lastGPS = null
+            Log.d("HomeActivity", "📊 Session started")
+        } else if (startTime > 0) {
+            Log.d("HomeActivity", "📊 Session ended - Duration: ${formatDuration(duration)}, Distance: ${String.format("%.2f", totalDistance)}km")
+        }
+
+        while (isRiding) {
+            delay(1000) // Update every second
+            duration = System.currentTimeMillis() - startTime
+        }
+    }
+
+    // GPS distance calculation
+    LaunchedEffect(currentGPS, isRiding) {
+        if (isRiding && currentGPS != null) {
+            lastGPS?.let { lastLocation ->
+                val distance = calculateDistance(
+                    lastLocation.latitude, lastLocation.longitude,
+                    currentGPS.latitude, currentGPS.longitude
+                )
+
+                // Only add distance if movement is significant (> 5 meters) to filter GPS noise
+                if (distance > 0.005) { // 5 meters in km
+                    totalDistance += distance
+                    Log.d("HomeActivity", "📍 Distance added: ${String.format("%.3f", distance)}km, Total: ${String.format("%.2f", totalDistance)}km")
+                }
+            }
+            lastGPS = currentGPS
+        }
+    }
+
+    // Calculate average speed
+    LaunchedEffect(duration, totalDistance) {
+        if (duration > 0 && isRiding) {
+            val durationHours = duration / (1000.0 * 60.0 * 60.0)
+            avgSpeed = if (durationHours > 0) totalDistance / durationHours else 0.0
+        }
+    }
+
     StatusCard(
         title = "Session Summary",
         icon = Icons.Filled.Dashboard
@@ -277,9 +332,18 @@ fun SessionSummarySection(isRiding: Boolean, onRideToggle: (Boolean) -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatItem("Duration", "45 min")
-                StatItem("Distance", "12.3 km")
-                StatItem("Avg Speed", "4.6 m/s")
+                StatItem(
+                    "Duration",
+                    if (isRiding) formatDuration(duration) else "0:00"
+                )
+                StatItem(
+                    "Distance",
+                    "${String.format("%.2f", totalDistance)} km"
+                )
+                StatItem(
+                    "Avg Speed",
+                    "${String.format("%.1f", avgSpeed)} km/h"
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -303,6 +367,31 @@ fun SessionSummarySection(isRiding: Boolean, onRideToggle: (Boolean) -> Unit) {
                 )
             }
         }
+    }
+}
+
+// Helper function to calculate distance between two GPS points (Haversine formula)
+private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val R = 6371.0 // Earth's radius in kilometers
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLon = Math.toRadians(lon2 - lon1)
+    val a = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
+            kotlin.math.cos(Math.toRadians(lat1)) * kotlin.math.cos(Math.toRadians(lat2)) *
+            kotlin.math.sin(dLon / 2) * kotlin.math.sin(dLon / 2)
+    val c = 2 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1 - a))
+    return R * c
+}
+
+// Helper function to format duration
+private fun formatDuration(millis: Long): String {
+    val seconds = (millis / 1000) % 60
+    val minutes = (millis / (1000 * 60)) % 60
+    val hours = (millis / (1000 * 60 * 60))
+
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%d:%02d", minutes, seconds)
     }
 }
 
@@ -666,7 +755,12 @@ fun HomeScreen() {
         ) {
             HeaderSection()
             PersonalStatusSection(heartRate, breathFrequency, speed, intensity)
-            SessionSummarySection(isRiding) { newState -> isRiding = newState }
+            SessionSummarySection(
+                isRiding = isRiding,
+                onRideToggle = { newState -> isRiding = newState },
+                currentGPS = currentGPS,
+                speed = speed
+            )
             AlertsSection()
             QuickActionsSection()
             TeamDashboardSection()
