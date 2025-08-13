@@ -27,12 +27,20 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cyclink.R
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.windowInsetsPadding
 import java.text.SimpleDateFormat
+import android.view.WindowManager
 import java.util.*
 
 class HelpChatActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Allow resize so input field moves up, but handle header in Compose
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+
         setContent {
             MaterialTheme {
                 HelpChatScreen(
@@ -79,117 +87,113 @@ fun HelpChatScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Header
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "Cyclink Help",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorResource(id = R.color.honeydew)
-                        )
-                        Text(
-                            text = "Ask me anything about cycling!",
-                            fontSize = 14.sp,
-                            color = colorResource(id = R.color.non_photo_blue)
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackPressed) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = colorResource(id = R.color.honeydew)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = colorResource(id = R.color.berkeley_blue)
-                )
-            )
+            // Header - matching AccountActivity style
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onBackPressed,
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = colorResource(id = R.color.honeydew)
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back"
+                    )
+                }
 
-            // Messages
-            LazyColumn(
-                state = listState,
+                Text(
+                    text = "Help & Support",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorResource(id = R.color.honeydew),
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+
+            // Messages with keyboard handling
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .windowInsetsPadding(WindowInsets.ime)
             ) {
-                if (messages.isEmpty()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     item {
                         WelcomeMessage()
                     }
-                }
 
-                items(messages) { message ->
-                    ChatMessageItem(message = message)
-                }
+                    items(messages) { message ->
+                        ChatMessageItem(message = message)
+                    }
 
-                if (isLoading) {
-                    item {
-                        TypingIndicator()
+                    if (isLoading) {
+                        item {
+                            TypingIndicator()
+                        }
                     }
                 }
             }
 
-            // Input field
+            // Input field - stays at bottom
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = colorResource(id = R.color.honeydew)
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                )
             ) {
                 Row(
                     modifier = Modifier
-                        .padding(8.dp)
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
+                    TextField(
                         value = messageText,
                         onValueChange = { messageText = it },
                         modifier = Modifier.weight(1f),
                         placeholder = {
                             Text(
-                                "Type your question...",
+                                "Ask me anything...",
                                 color = colorResource(id = R.color.cerulean).copy(alpha = 0.6f)
                             )
                         },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colorResource(id = R.color.cerulean),
-                            unfocusedBorderColor = colorResource(id = R.color.non_photo_blue),
-                            focusedTextColor = colorResource(id = R.color.berkeley_blue),
-                            unfocusedTextColor = colorResource(id = R.color.berkeley_blue)
-                        ),
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 4
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = colorResource(id = R.color.honeydew),
+                            unfocusedContainerColor = colorResource(id = R.color.honeydew),
+                            focusedIndicatorColor = colorResource(id = R.color.cerulean),
+                            unfocusedIndicatorColor = colorResource(id = R.color.non_photo_blue)
+                        )
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    FloatingActionButton(
+                    IconButton(
                         onClick = {
-                            if (messageText.isNotBlank() && !isLoading) {
-                                viewModel.sendMessage(messageText.trim())
+                            if (messageText.isNotBlank()) {
+                                viewModel.sendMessage(messageText)
                                 messageText = ""
                             }
                         },
-                        modifier = Modifier.size(48.dp),
-                        containerColor = colorResource(id = R.color.cerulean),
-                        contentColor = colorResource(id = R.color.honeydew)
+                        enabled = messageText.isNotBlank() && !isLoading
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send",
-                            modifier = Modifier.size(20.dp)
+                            tint = if (messageText.isNotBlank() && !isLoading)
+                                colorResource(id = R.color.cerulean)
+                            else
+                                colorResource(id = R.color.non_photo_blue).copy(alpha = 0.5f)
                         )
                     }
                 }
