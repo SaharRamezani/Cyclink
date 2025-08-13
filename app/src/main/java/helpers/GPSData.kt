@@ -3,7 +3,9 @@ package com.example.cyclink.helpers
 data class GPSData(
     val latitude: Double,
     val longitude: Double,
-    val altitude: Double = 0.0,
-    val accuracy: Float = 0.0f,
+    val altitude: Double,
+    val accuracy: Float,
+    val speed: Float,
+    val bearing: Float,
     val timestamp: Long = System.currentTimeMillis()
 )

@@ -5,9 +5,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import com.example.cyclink.helpers.FirestoreHelper
+import com.example.cyclink.helpers.SensorRecord
+import java.util.UUID
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.foundation.rememberScrollState
 import com.example.cyclink.team.TeamMember
 import com.example.cyclink.team.TeamDashboardActivity
@@ -582,6 +584,9 @@ fun HomeScreen() {
     var userRole by remember { mutableStateOf("member") }
     var isRiding by remember { mutableStateOf(false) }
 
+    // Session ID for grouping records
+    var sessionId by remember { mutableStateOf("") }
+
     // Real-time sensor data states from MQTT
     var heartRate by remember { mutableStateOf(0.0) }
     var breathFrequency by remember { mutableStateOf(0.0) }
@@ -592,7 +597,12 @@ fun HomeScreen() {
     // Phone speed for session summary
     var phoneSpeed by remember { mutableStateOf(0.0) }
 
-    // Acceleration data for intensity calculation
+    // Phone acceleration data
+    var phoneAccelerationX by remember { mutableStateOf(0.0) }
+    var phoneAccelerationY by remember { mutableStateOf(0.0) }
+    var phoneAccelerationZ by remember { mutableStateOf(0.0) }
+
+    // Acceleration data for intensity calculation from MQTT
     var accelerationX by remember { mutableStateOf(0.0) }
     var accelerationY by remember { mutableStateOf(0.0) }
     var accelerationZ by remember { mutableStateOf(0.0) }
@@ -601,15 +611,84 @@ fun HomeScreen() {
     // R-R intervals for HRV calculation
     var rrIntervals by remember { mutableStateOf<List<Double>>(emptyList()) }
 
+    // Additional sensor data storage
+    var ecgData by remember { mutableStateOf<List<Double>?>(null) }
+    var respirationData by remember { mutableStateOf<List<Double>?>(null) }
+
     // Initialize helpers
     val mqttHelper = remember { MQTTHelper(context) }
     val gpsHelper = remember { GPSHelper(context) }
+    val firestoreHelper = remember { FirestoreHelper() }
 
-    // Phone sensors for speed calculation
+    // Phone sensors
     val sensorManager = remember { context.getSystemService(android.content.Context.SENSOR_SERVICE) as SensorManager }
     val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
-    // Phone sensor listener for speed calculation (for session summary only)
+    // Generate session ID when ride starts
+    LaunchedEffect(isRiding) {
+        if (isRiding && sessionId.isEmpty()) {
+            sessionId = "session_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}"
+            Log.d("HomeActivity", "🆔 New session ID: $sessionId")
+        } else if (!isRiding) {
+            // Keep session ID for potential resume
+        }
+    }
+
+    // Function to save complete sensor record to Firestore
+    // Update the saveSensorRecord function to ensure GPS data is included
+    fun saveSensorRecord(mqttData: SensorDataMessage?) {
+        val currentTime = System.currentTimeMillis()
+
+        // Ensure we have GPS data before saving
+        val gpsToSave = currentGPS
+        if (gpsToSave == null) {
+            Log.w("HomeActivity", "⚠️ No GPS data available, skipping save")
+            return
+        }
+
+        val sensorRecord = SensorRecord(
+            timestamp = currentTime,
+            userId = "", // Will be set in FirestoreHelper
+            sessionId = sessionId,
+            // MQTT sensor data
+            heartRate = if (heartRate > 0) heartRate else null,
+            breathFrequency = if (breathFrequency > 0) breathFrequency else null,
+            hrv = if (hrv > 0) hrv else null,
+            intensity = if (intensity > 0) intensity else null,
+            accelerationX = if (accelerationX != 0.0) accelerationX else null,
+            accelerationY = if (accelerationY != 0.0) accelerationY else null,
+            accelerationZ = if (accelerationZ != 0.0) accelerationZ else null,
+            ecg = ecgData,
+            respiration = respirationData,
+            r2rIntervals = if (rrIntervals.isNotEmpty()) rrIntervals else null,
+            // Phone sensor data
+            phoneSpeed = if (phoneSpeed > 0) phoneSpeed else null,
+            phoneAccelerationX = if (phoneAccelerationX != 0.0) phoneAccelerationX else null,
+            phoneAccelerationY = if (phoneAccelerationY != 0.0) phoneAccelerationY else null,
+            phoneAccelerationZ = if (phoneAccelerationZ != 0.0) phoneAccelerationZ else null,
+            // GPS data - ensure it's not null
+            latitude = gpsToSave.latitude,
+            longitude = gpsToSave.longitude,
+            altitude = gpsToSave.altitude,
+            gpsAccuracy = gpsToSave.accuracy,
+            gpsSpeed = gpsToSave.speed,
+            gpsBearing = gpsToSave.bearing
+        )
+
+        Log.d("HomeActivity", "📍 Saving GPS data: lat=${gpsToSave.latitude}, lon=${gpsToSave.longitude}")
+
+        firestoreHelper.saveSensorRecord(
+            sensorRecord = sensorRecord,
+            onSuccess = {
+                Log.d("HomeActivity", "💾 Sensor record with GPS saved successfully")
+            },
+            onError = { error ->
+                Log.e("HomeActivity", "❌ Failed to save sensor record: ${error.message}")
+            }
+        )
+    }
+
+    // Phone sensor listener for acceleration and speed
     DisposableEffect(isRiding) {
         val sensorListener = object : SensorEventListener {
             var lastAcceleration = 9.8f
@@ -622,6 +701,12 @@ fun HomeScreen() {
                     val y = event.values[1]
                     val z = event.values[2]
 
+                    // Store phone acceleration data
+                    phoneAccelerationX = x.toDouble()
+                    phoneAccelerationY = y.toDouble()
+                    phoneAccelerationZ = z.toDouble()
+
+                    // Calculate speed estimation
                     lastAcceleration = currentAcceleration
                     currentAcceleration = sqrt(x * x + y * y + z * z)
                     val delta = currentAcceleration - lastAcceleration
@@ -643,7 +728,7 @@ fun HomeScreen() {
         }
     }
 
-    // MQTT sensor data handler
+    // MQTT sensor data handler with Firestore integration
     val onMQTTSensorDataReceived: (SensorDataMessage) -> Unit = { sensorData: SensorDataMessage ->
         Log.d("HomeActivity", "🔥 MQTT SENSOR DATA RECEIVED:")
         Log.d("HomeActivity", "📊 Type: '${sensorData.measureType}'")
@@ -671,10 +756,17 @@ fun HomeScreen() {
                 Log.d("HomeActivity", "🫁 Breath Frequency updated: $averageValue /min")
             }
             "R2R" -> {
-                // R-R intervals for HRV calculation
                 rrIntervals = sensorData.value
                 hrv = calculateHRV(rrIntervals)
                 Log.d("HomeActivity", "💓 HRV updated: $hrv ms (from ${rrIntervals.size} R-R intervals)")
+            }
+            "ECG" -> {
+                ecgData = sensorData.value
+                Log.d("HomeActivity", "📈 ECG data received: ${sensorData.value.size} samples")
+            }
+            "Respiration" -> {
+                respirationData = sensorData.value
+                Log.d("HomeActivity", "🫁 Respiration data received: ${sensorData.value.size} samples")
             }
             "AccelerationX" -> {
                 accelerationX = averageValue
@@ -695,13 +787,31 @@ fun HomeScreen() {
                 Log.w("HomeActivity", "❓ Unknown measurement: ${sensorData.measureType}")
             }
         }
+
+        // Save to Firestore after processing MQTT data
+        if (isRiding && sessionId.isNotEmpty()) {
+            saveSensorRecord(sensorData)
+        }
     }
 
-    // Monitor data reception timeout
+    // Auto-save sensor records periodically when riding (even without MQTT data)
+    LaunchedEffect(isRiding, currentGPS, phoneSpeed) {
+        if (isRiding && sessionId.isNotEmpty()) {
+            while (isRiding) {
+                delay(10000) // Save every 10 seconds
+
+                // Save current state even if no new MQTT data
+                saveSensorRecord(null)
+                Log.d("HomeActivity", "💾 Periodic sensor record saved")
+            }
+        }
+    }
+
+    // Rest of your existing LaunchedEffect blocks remain the same...
     LaunchedEffect(isRiding) {
         if (isRiding) {
             while (isRiding) {
-                delay(10000) // Check every 10 seconds
+                delay(10000)
                 val currentTime = System.currentTimeMillis()
                 if (lastDataReceived > 0 && (currentTime - lastDataReceived) > 15000) {
                     Log.w("HomeActivity", "⏰ No MQTT data received for 15+ seconds")
@@ -714,20 +824,17 @@ fun HomeScreen() {
         }
     }
 
-    // Start/stop services based on ride state
     LaunchedEffect(isRiding) {
         Log.d("HomeActivity", "🚴 RIDE STATE: $isRiding")
 
         if (isRiding) {
             Log.d("HomeActivity", "=== STARTING RIDE SERVICES ===")
 
-            // Start GPS
             gpsHelper.startLocationUpdates { gpsData ->
                 currentGPS = gpsData
                 Log.d("HomeActivity", "📍 GPS: ${gpsData.latitude}, ${gpsData.longitude}")
             }
 
-            // Start MQTT with sensor data callback
             mqttHelper.connect(
                 onConnected = {
                     Log.d("HomeActivity", "✅ MQTT connected and subscribed to sensor data")
@@ -745,6 +852,7 @@ fun HomeScreen() {
         }
     }
 
+    // Rest of your UI code remains the same...
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -770,7 +878,7 @@ fun HomeScreen() {
                 isRiding = isRiding,
                 onRideToggle = { newState -> isRiding = newState },
                 currentGPS = currentGPS,
-                speed = phoneSpeed // Use phone speed for session summary
+                speed = phoneSpeed
             )
             AlertsSection()
             QuickActionsSection()
@@ -830,8 +938,8 @@ fun QuickActionsSection() {
                 ) { }
 
                 QuickActionButton(
-                    text = "Sync",
-                    icon = Icons.Filled.Refresh,
+                    text = "Help",
+                    icon = Icons.AutoMirrored.Filled.Help,
                     modifier = Modifier.weight(1f)
                 ) { }
             }
