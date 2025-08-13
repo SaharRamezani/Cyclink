@@ -16,7 +16,7 @@ class BluetoothConnection(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // UUID for SPP (Serial Port Profile) - matches what your laptop sends
-    private val SPP_UUID = UUID.fromString(context.getString(R.string.spp_uuid))
+    private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb")
 
     companion object {
         private const val TAG = "BluetoothServer"
@@ -31,7 +31,7 @@ class BluetoothConnection(private val context: Context) {
 
         scope.launch {
             try {
-                serverSocket = bluetoothAdapter.listenUsingRfcommWithServiceRecord(
+                serverSocket = bluetoothAdapter.listenUsingInsecureRfcommWithServiceRecord(
                     SERVICE_NAME, SPP_UUID
                 )
                 isRunning = true
@@ -62,51 +62,53 @@ class BluetoothConnection(private val context: Context) {
         onMessageReceived: (SensorData) -> Unit
     ) {
         scope.launch {
-            val inputStream: InputStream = socket.inputStream
-            val buffer = ByteArray(1024)
-
+            val input = socket.inputStream
+            val buf = ByteArray(4096)
+            val sb = StringBuilder()
+            Log.d(TAG, "📡 Handling connection from ${socket.remoteDevice.name}/${socket.remoteDevice.address}")
             try {
                 while (isRunning) {
-                    val bytesRead = inputStream.read(buffer)
-                    if (bytesRead > 0) {
-                        val message = String(buffer, 0, bytesRead).trim()
-                        Log.d(TAG, "Received: $message")
-
-                        // Parse the JSON message
-                        try {
-                            val SensorData = parseSensorData(message)
-                            withContext(Dispatchers.Main) {
-                                onMessageReceived(SensorData)
+                    val n = try { input.read(buf) } catch (_: IOException) { -1 }
+                    if (n <= 0) break
+                    sb.append(String(buf, 0, n))
+                    var nl = sb.indexOf("\n")
+                    while (nl != -1) {
+                        val line = sb.substring(0, nl).trim()
+                        sb.delete(0, nl + 1)
+                        if (line.isNotEmpty()) {
+                            Log.d(TAG, "⬅️ $line")
+                            try {
+                                val sd = parseSensorData(line)
+                                withContext(Dispatchers.Main) { onMessageReceived(sd) }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "🛑 Bad JSON, skipping: $line", e)
                             }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to parse message: $message", e)
                         }
+                        nl = sb.indexOf("\n")
                     }
                 }
-            } catch (e: IOException) {
-                Log.e(TAG, "Connection lost", e)
             } finally {
-                socket.close()
+                try { socket.close() } catch (_: IOException) {}
+                Log.d(TAG, "🔚 Connection closed ${socket.remoteDevice.address}")
             }
         }
     }
 
-    private fun parseSensorData(jsonString: String): SensorData {
-        // Using basic JSON parsing (you might want to use Gson or kotlinx.serialization)
-        val json = jsonString.trim()
+    private fun parseSensorData(json: String): SensorData {
+        fun rx(p: String) = Regex(p, RegexOption.IGNORE_CASE)
+        val date = rx("\"date\"\\s*:\\s*(\\d+)").find(json)?.groupValues?.get(1)?.toLong() ?: 0L
+        val userId = rx("\"userId\"\\s*:\\s*(\\d+)").find(json)?.groupValues?.get(1)?.toInt() ?: 0
+        val measureType = rx("\"measureType\"\\s*:\\s*\"([^\"]+)\"").find(json)?.groupValues?.get(1)?.lowercase() ?: ""
 
-        // Simple JSON parsing - for production use Gson or kotlinx.serialization
-        val dateRegex = "\"date\":(\\d+)".toRegex()
-        val userIdRegex = "\"userId\":(\\d+)".toRegex()
-        val measureTypeRegex = "\"measureType\":\"([^\"]+)\"".toRegex()
-        val valueRegex = "\"value\":\\[([^\\]]+)\\]".toRegex()
+        val arr = rx("\"value\"\\s*:\\s*\\[([^\\]]*)\\]").find(json)?.groupValues?.get(1)
+        val scalar = rx("\"value\"\\s*:\\s*([-+]?[0-9]*\\.?[0-9]+)").find(json)?.groupValues?.get(1)
 
-        val date = dateRegex.find(json)?.groupValues?.get(1)?.toLong() ?: 0L
-        val userId = userIdRegex.find(json)?.groupValues?.get(1)?.toInt() ?: 0
-        val measureType = measureTypeRegex.find(json)?.groupValues?.get(1) ?: ""
-        val valueString = valueRegex.find(json)?.groupValues?.get(1) ?: ""
-
-        val values = valueString.split(",").map { it.trim().toDouble() }
+        val values: List<Double> = when {
+            arr != null -> arr.split(",").mapNotNull { it.trim().takeIf { s -> s.isNotEmpty() }?.toDoubleOrNull() }
+            scalar != null -> listOfNotNull(scalar.toDoubleOrNull())
+            else -> emptyList()
+        }
+        if (values.isEmpty()) throw IllegalArgumentException("No numeric values")
 
         return SensorData(date, values, userId, measureType)
     }

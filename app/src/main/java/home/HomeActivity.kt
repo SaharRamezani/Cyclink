@@ -277,26 +277,34 @@ fun SessionSummarySection(
     var duration by remember { mutableStateOf(0L) }
     var totalDistance by remember { mutableStateOf(0.0) }
     var lastGPS by remember { mutableStateOf<GPSData?>(null) }
-    var avgSpeed by remember { mutableStateOf(0.0) }
+    var currentSpeed by remember { mutableStateOf(0.0) }
 
-    // Timer for duration tracking
+    // Timer for duration tracking - keeps running even when stopped
     LaunchedEffect(isRiding) {
         if (isRiding) {
-            startTime = System.currentTimeMillis()
-            totalDistance = 0.0
-            lastGPS = null
-            Log.d("HomeActivity", "📊 Session started")
+            if (startTime == 0L) {
+                // Only reset on first start
+                startTime = System.currentTimeMillis()
+                totalDistance = 0.0
+                lastGPS = null
+                Log.d("HomeActivity", "📊 Session started")
+            } else {
+                // Resume from pause
+                val pausedDuration = duration
+                startTime = System.currentTimeMillis() - pausedDuration
+                Log.d("HomeActivity", "📊 Session resumed")
+            }
         } else if (startTime > 0) {
-            Log.d("HomeActivity", "📊 Session ended - Duration: ${formatDuration(duration)}, Distance: ${String.format("%.2f", totalDistance)}km")
+            Log.d("HomeActivity", "📊 Session paused - Duration: ${formatDurationWithHours(duration)}, Distance: ${String.format("%.2f", totalDistance)}km")
         }
 
-        while (isRiding) {
+        while (isRiding && startTime > 0) {
             delay(1000) // Update every second
             duration = System.currentTimeMillis() - startTime
         }
     }
 
-    // GPS distance calculation
+    // GPS distance and real-time speed calculation
     LaunchedEffect(currentGPS, isRiding) {
         if (isRiding && currentGPS != null) {
             lastGPS?.let { lastLocation ->
@@ -305,21 +313,22 @@ fun SessionSummarySection(
                     currentGPS.latitude, currentGPS.longitude
                 )
 
-                // Only add distance if movement is significant (> 5 meters) to filter GPS noise
+                // Calculate real-time speed based on GPS movement
+                val timeElapsed = 1.0 // Assume 1 second between updates
                 if (distance > 0.005) { // 5 meters in km
                     totalDistance += distance
-                    Log.d("HomeActivity", "📍 Distance added: ${String.format("%.3f", distance)}km, Total: ${String.format("%.2f", totalDistance)}km")
+                    // Convert km/s to km/h for real-time speed
+                    currentSpeed = (distance / timeElapsed) * 3600 // km/h
+                    Log.d("HomeActivity", "📍 Distance: ${String.format("%.3f", distance)}km, Speed: ${String.format("%.1f", currentSpeed)} km/h")
+                } else {
+                    // No significant movement, speed is 0
+                    currentSpeed = 0.0
                 }
             }
             lastGPS = currentGPS
-        }
-    }
-
-    // Calculate average speed
-    LaunchedEffect(duration, totalDistance) {
-        if (duration > 0 && isRiding) {
-            val durationHours = duration / (1000.0 * 60.0 * 60.0)
-            avgSpeed = if (durationHours > 0) totalDistance / durationHours else 0.0
+        } else if (!isRiding) {
+            // Reset real-time speed when not riding
+            currentSpeed = 0.0
         }
     }
 
@@ -334,40 +343,84 @@ fun SessionSummarySection(
             ) {
                 StatItem(
                     "Duration",
-                    if (isRiding) formatDuration(duration) else "0:00"
+                    if (startTime > 0) formatDurationWithHours(duration) else "00:00:00"
                 )
                 StatItem(
                     "Distance",
                     "${String.format("%.2f", totalDistance)} km"
                 )
                 StatItem(
-                    "Avg Speed",
-                    "${String.format("%.1f", avgSpeed)} km/h"
+                    "Speed",
+                    "${String.format("%.1f", if (isRiding) currentSpeed else 0.0)} km/h"
                 )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
-                onClick = { onRideToggle(!isRiding) },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isRiding) colorResource(id = R.color.red_pantone) else colorResource(id = R.color.cerulean)
-                )
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = if (isRiding) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    if (isRiding) "Stop Ride" else "Start Ride",
-                    color = colorResource(id = R.color.honeydew)
-                )
+                // Reset button
+                Button(
+                    onClick = {
+                        startTime = 0L
+                        duration = 0L
+                        totalDistance = 0.0
+                        currentSpeed = 0.0
+                        lastGPS = null
+                        Log.d("HomeActivity", "📊 Session reset")
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.1f),
+                        contentColor = colorResource(id = R.color.berkeley_blue)
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        "Reset",
+                        color = colorResource(id = R.color.berkeley_blue),
+                        fontSize = 14.sp
+                    )
+                }
+
+                // Start/Stop button
+                Button(
+                    onClick = { onRideToggle(!isRiding) },
+                    modifier = Modifier.weight(2f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isRiding) colorResource(id = R.color.red_pantone) else colorResource(id = R.color.cerulean)
+                    )
+                ) {
+                    Icon(
+                        imageVector = if (isRiding) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        if (isRiding) "Stop Ride" else "Start Ride",
+                        color = colorResource(id = R.color.honeydew)
+                    )
+                }
             }
         }
     }
+}
+
+// Updated helper function to format duration with hours
+private fun formatDurationWithHours(millis: Long): String {
+    val seconds = (millis / 1000) % 60
+    val minutes = (millis / (1000 * 60)) % 60
+    val hours = (millis / (1000 * 60 * 60))
+
+    return String.format("%02d:%02d:%02d", hours, minutes, seconds)
 }
 
 // Helper function to calculate distance between two GPS points (Haversine formula)
@@ -570,7 +623,7 @@ fun HomeScreen() {
                     velocityEstimate += delta * 0.1
                     speed = kotlin.math.abs(velocityEstimate * 0.5)
 
-                    Log.d("HomeActivity", "📱 Phone speed: $speed m/s")
+                    // Log.d("HomeActivity", "📱 Phone speed: $speed m/s")
                 }
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
