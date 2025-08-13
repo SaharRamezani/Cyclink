@@ -35,7 +35,6 @@ import com.example.cyclink.R
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.example.cyclink.helpers.GPSData
-import com.example.cyclink.helpers.BluetoothConnection
 import com.example.cyclink.helpers.MQTTHelper
 import com.example.cyclink.helpers.GPSHelper
 import com.example.cyclink.helpers.SensorData
@@ -596,7 +595,6 @@ fun HomeScreen() {
     var lastDataReceived by remember { mutableStateOf(0L) }
 
     // Initialize helpers
-    val bluetoothConnection = remember { BluetoothConnection(context) }
     val mqttHelper = remember { MQTTHelper(context) }
     val gpsHelper = remember { GPSHelper(context) }
 
@@ -711,27 +709,6 @@ fun HomeScreen() {
         }
     }
 
-    // Bluetooth permissions
-    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        Log.d("HomeActivity", "=== BLUETOOTH PERMISSIONS ===")
-        permissions.forEach { (permission, granted) ->
-            Log.d("HomeActivity", "$permission: $granted")
-        }
-
-        val bluetoothGranted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            permissions[android.Manifest.permission.BLUETOOTH_CONNECT] == true
-        } else true
-
-        val locationGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
-
-        if (bluetoothGranted && locationGranted && isRiding) {
-            bluetoothConnection.startServer(onBluetoothDataReceived)
-            Log.d("HomeActivity", "🔵 Bluetooth server started")
-        }
-    }
-
     // Monitor data reception timeout
     LaunchedEffect(isRiding) {
         if (isRiding) {
@@ -756,20 +733,6 @@ fun HomeScreen() {
         if (isRiding) {
             Log.d("HomeActivity", "=== STARTING RIDE SERVICES ===")
 
-            // Request Bluetooth permissions
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                bluetoothPermissionLauncher.launch(
-                    arrayOf(
-                        android.Manifest.permission.BLUETOOTH_CONNECT,
-                        android.Manifest.permission.ACCESS_FINE_LOCATION
-                    )
-                )
-            } else {
-                bluetoothPermissionLauncher.launch(
-                    arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
-                )
-            }
-
             // Start GPS
             gpsHelper.startLocationUpdates { gpsData ->
                 currentGPS = gpsData
@@ -781,7 +744,6 @@ fun HomeScreen() {
 
         } else {
             Log.d("HomeActivity", "=== STOPPING RIDE SERVICES ===")
-            bluetoothConnection.stopServer()
             gpsHelper.stopLocationUpdates()
             mqttHelper.disconnect()
         }
