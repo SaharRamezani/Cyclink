@@ -45,6 +45,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import kotlinx.coroutines.delay
 import kotlin.math.sqrt
+import com.example.cyclink.helpers.SensorDataMessage
 import org.json.JSONObject
 
 class HomeActivity : ComponentActivity() {
@@ -124,7 +125,7 @@ fun HeaderSection() {
 fun PersonalStatusSection(
     heartRate: Double,
     breathFrequency: Double,
-    speed: Double,
+    hrv: Double,
     intensity: Double
 ) {
     StatusCard(
@@ -144,7 +145,7 @@ fun PersonalStatusSection(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                VitalMetric("Speed", "${String.format("%.1f", speed)} m/s", Icons.Filled.Speed)
+                VitalMetric("HRV", "${String.format("%.1f", hrv)} ms", Icons.Filled.Timeline)
                 VitalMetric("Intensity", "${String.format("%.1f", intensity)}", Icons.Filled.FitnessCenter)
             }
         }
@@ -581,18 +582,24 @@ fun HomeScreen() {
     var userRole by remember { mutableStateOf("member") }
     var isRiding by remember { mutableStateOf(false) }
 
-    // Sensor data states - only for Personal Status
+    // Real-time sensor data states from MQTT
     var heartRate by remember { mutableStateOf(0.0) }
     var breathFrequency by remember { mutableStateOf(0.0) }
-    var speed by remember { mutableStateOf(0.0) }
+    var hrv by remember { mutableStateOf(0.0) }
     var intensity by remember { mutableStateOf(0.0) }
     var currentGPS by remember { mutableStateOf<GPSData?>(null) }
+
+    // Phone speed for session summary
+    var phoneSpeed by remember { mutableStateOf(0.0) }
 
     // Acceleration data for intensity calculation
     var accelerationX by remember { mutableStateOf(0.0) }
     var accelerationY by remember { mutableStateOf(0.0) }
     var accelerationZ by remember { mutableStateOf(0.0) }
     var lastDataReceived by remember { mutableStateOf(0L) }
+
+    // R-R intervals for HRV calculation
+    var rrIntervals by remember { mutableStateOf<List<Double>>(emptyList()) }
 
     // Initialize helpers
     val mqttHelper = remember { MQTTHelper(context) }
@@ -602,7 +609,7 @@ fun HomeScreen() {
     val sensorManager = remember { context.getSystemService(android.content.Context.SENSOR_SERVICE) as SensorManager }
     val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
-    // Phone sensor listener for speed calculation
+    // Phone sensor listener for speed calculation (for session summary only)
     DisposableEffect(isRiding) {
         val sensorListener = object : SensorEventListener {
             var lastAcceleration = 9.8f
@@ -619,9 +626,7 @@ fun HomeScreen() {
                     currentAcceleration = sqrt(x * x + y * y + z * z)
                     val delta = currentAcceleration - lastAcceleration
                     velocityEstimate += delta * 0.1
-                    speed = kotlin.math.abs(velocityEstimate * 0.5)
-
-                    // Log.d("HomeActivity", "📱 Phone speed: $speed m/s")
+                    phoneSpeed = kotlin.math.abs(velocityEstimate * 0.5)
                 }
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -638,74 +643,57 @@ fun HomeScreen() {
         }
     }
 
-    // Enhanced Bluetooth data handler matching your simulator format
-    val onBluetoothDataReceived: (SensorData) -> Unit = { sensorData ->
-        Log.d("HomeActivity", "🔥 BLUETOOTH DATA RECEIVED:")
+    // MQTT sensor data handler
+    val onMQTTSensorDataReceived: (SensorDataMessage) -> Unit = { sensorData: SensorDataMessage ->
+        Log.d("HomeActivity", "🔥 MQTT SENSOR DATA RECEIVED:")
         Log.d("HomeActivity", "📊 Type: '${sensorData.measureType}'")
-        Log.d("HomeActivity", "📊 Value: ${sensorData.value}")
+        Log.d("HomeActivity", "📊 Values: ${sensorData.value.size} samples")
         Log.d("HomeActivity", "📊 User ID: ${sensorData.userId}")
         Log.d("HomeActivity", "📊 Date: ${sensorData.date}")
 
         lastDataReceived = System.currentTimeMillis()
 
-        // Convert value list to double (take first value from array)
-        val doubleValue = if (sensorData.value.isNotEmpty()) {
-            sensorData.value[0]
+        // Calculate average value from the array
+        val averageValue = if (sensorData.value.isNotEmpty()) {
+            sensorData.value.average()
         } else {
             0.0
         }
 
-        // Handle measurement types exactly matching your simulator
-        when (sensorData.measureType.lowercase()) {
-            "heartrate" -> {
-                heartRate = doubleValue
-                Log.d("HomeActivity", "❤️ Heart Rate updated: $doubleValue bpm")
+        // Handle measurement types
+        when (sensorData.measureType) {
+            "HeartRate" -> {
+                heartRate = averageValue
+                Log.d("HomeActivity", "❤️ Heart Rate updated: $averageValue bpm")
             }
-            "breathfrequency" -> {
-                breathFrequency = doubleValue
-                Log.d("HomeActivity", "🫁 Breath Frequency updated: $doubleValue /min")
+            "BreathFrequency" -> {
+                breathFrequency = averageValue
+                Log.d("HomeActivity", "🫁 Breath Frequency updated: $averageValue /min")
             }
-            "accelerationx" -> {
-                accelerationX = doubleValue
+            "R2R" -> {
+                // R-R intervals for HRV calculation
+                rrIntervals = sensorData.value
+                hrv = calculateHRV(rrIntervals)
+                Log.d("HomeActivity", "💓 HRV updated: $hrv ms (from ${rrIntervals.size} R-R intervals)")
+            }
+            "AccelerationX" -> {
+                accelerationX = averageValue
                 intensity = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
-                Log.d("HomeActivity", "📐 AccelerationX: $doubleValue → Intensity: $intensity")
+                Log.d("HomeActivity", "📐 AccelerationX: $averageValue → Intensity: $intensity")
             }
-            "accelerationy" -> {
-                accelerationY = doubleValue
+            "AccelerationY" -> {
+                accelerationY = averageValue
                 intensity = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
-                Log.d("HomeActivity", "📐 AccelerationY: $doubleValue → Intensity: $intensity")
+                Log.d("HomeActivity", "📐 AccelerationY: $averageValue → Intensity: $intensity")
             }
-            "accelerationz" -> {
-                accelerationZ = doubleValue
+            "AccelerationZ" -> {
+                accelerationZ = averageValue
                 intensity = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
-                Log.d("HomeActivity", "📐 AccelerationZ: $doubleValue → Intensity: $intensity")
-            }
-            "respiration" -> {
-                Log.d("HomeActivity", "🌬️ Respiration: $doubleValue")
-            }
-            "position" -> {
-                Log.d("HomeActivity", "📍 Position: $doubleValue")
+                Log.d("HomeActivity", "📐 AccelerationZ: $averageValue → Intensity: $intensity")
             }
             else -> {
                 Log.w("HomeActivity", "❓ Unknown measurement: ${sensorData.measureType}")
             }
-        }
-
-        // Send to MQTT
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user != null) {
-            val mqttData = MQTTSensorData(
-                userId = user.uid,
-                date = System.currentTimeMillis(),
-                sensorData = sensorData,
-                gpsData = currentGPS,
-                deviceId = android.provider.Settings.Secure.getString(
-                    context.contentResolver,
-                    android.provider.Settings.Secure.ANDROID_ID
-                )
-            )
-            mqttHelper.publishSensorData(mqttData)
-            Log.d("HomeActivity", "📡 Data sent to MQTT")
         }
     }
 
@@ -716,11 +704,11 @@ fun HomeScreen() {
                 delay(10000) // Check every 10 seconds
                 val currentTime = System.currentTimeMillis()
                 if (lastDataReceived > 0 && (currentTime - lastDataReceived) > 15000) {
-                    Log.w("HomeActivity", "⏰ No Bluetooth data received for 15+ seconds")
+                    Log.w("HomeActivity", "⏰ No MQTT data received for 15+ seconds")
                 } else if (lastDataReceived == 0L) {
-                    Log.w("HomeActivity", "⏰ No Bluetooth data received yet")
+                    Log.w("HomeActivity", "⏰ No MQTT data received yet")
                 } else {
-                    Log.d("HomeActivity", "✅ Bluetooth data flow normal")
+                    Log.d("HomeActivity", "✅ MQTT data flow normal")
                 }
             }
         }
@@ -739,8 +727,16 @@ fun HomeScreen() {
                 Log.d("HomeActivity", "📍 GPS: ${gpsData.latitude}, ${gpsData.longitude}")
             }
 
-            // Start MQTT
-            mqttHelper.connect()
+            // Start MQTT with sensor data callback
+            mqttHelper.connect(
+                onConnected = {
+                    Log.d("HomeActivity", "✅ MQTT connected and subscribed to sensor data")
+                },
+                onError = { error ->
+                    Log.e("HomeActivity", "❌ MQTT connection failed: $error")
+                },
+                onSensorDataReceived = onMQTTSensorDataReceived
+            )
 
         } else {
             Log.d("HomeActivity", "=== STOPPING RIDE SERVICES ===")
@@ -769,18 +765,33 @@ fun HomeScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             HeaderSection()
-            PersonalStatusSection(heartRate, breathFrequency, speed, intensity)
+            PersonalStatusSection(heartRate, breathFrequency, hrv, intensity)
             SessionSummarySection(
                 isRiding = isRiding,
                 onRideToggle = { newState -> isRiding = newState },
                 currentGPS = currentGPS,
-                speed = speed
+                speed = phoneSpeed // Use phone speed for session summary
             )
             AlertsSection()
             QuickActionsSection()
             TeamDashboardSection()
         }
     }
+}
+
+// Helper function to calculate HRV from R-R intervals
+private fun calculateHRV(rrIntervals: List<Double>): Double {
+    if (rrIntervals.size < 2) return 0.0
+
+    // Calculate RMSSD (Root Mean Square of Successive Differences)
+    var sumSquaredDiffs = 0.0
+    for (i in 1 until rrIntervals.size) {
+        val diff = rrIntervals[i] - rrIntervals[i - 1]
+        sumSquaredDiffs += diff * diff
+    }
+
+    val rmssd = sqrt(sumSquaredDiffs / (rrIntervals.size - 1))
+    return rmssd * 1000 // Convert to milliseconds
 }
 
 @Composable
