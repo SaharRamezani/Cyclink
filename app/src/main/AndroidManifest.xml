@@ -54,5 +54,9 @@
         <activity
             android:name=".team.MemberMapActivity"
             android:exported="false" />
+        <activity
+            android:name=".chat.HelpChatActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Cyclink" />
     </application>
 </manifest>

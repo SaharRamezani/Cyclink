@@ -1,5 +1,6 @@
 package com.example.cyclink.home
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,7 +31,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cyclink.R
@@ -39,8 +39,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.example.cyclink.helpers.GPSData
 import com.example.cyclink.helpers.MQTTHelper
 import com.example.cyclink.helpers.GPSHelper
-import com.example.cyclink.helpers.SensorData
-import com.example.cyclink.helpers.MQTTSensorData
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -48,7 +46,6 @@ import android.hardware.SensorManager
 import kotlinx.coroutines.delay
 import kotlin.math.sqrt
 import com.example.cyclink.helpers.SensorDataMessage
-import org.json.JSONObject
 
 class HomeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,6 +120,7 @@ fun HeaderSection() {
     }
 }
 
+@SuppressLint("DefaultLocale")
 @Composable
 fun PersonalStatusSection(
     heartRate: Double,
@@ -170,7 +168,7 @@ fun TeamDashboardSection() {
                 .document(user.uid)
                 .get()
                 .addOnSuccessListener { userDoc ->
-                    val teamData = userDoc.get("currentTeam") as? Map<String, Any>
+                    val teamData = userDoc.get("currentTeam") as? Map<*, *>
                     if (teamData != null) {
                         val teamId = teamData["teamId"] as? String ?: ""
 
@@ -268,6 +266,7 @@ fun TeamDashboardSection() {
     }
 }
 
+@SuppressLint("DefaultLocale")
 @Composable
 fun SessionSummarySection(
     isRiding: Boolean,
@@ -433,21 +432,8 @@ private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Do
     val a = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
             kotlin.math.cos(Math.toRadians(lat1)) * kotlin.math.cos(Math.toRadians(lat2)) *
             kotlin.math.sin(dLon / 2) * kotlin.math.sin(dLon / 2)
-    val c = 2 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1 - a))
+    val c = 2 * kotlin.math.atan2(sqrt(a), sqrt(1 - a))
     return R * c
-}
-
-// Helper function to format duration
-private fun formatDuration(millis: Long): String {
-    val seconds = (millis / 1000) % 60
-    val minutes = (millis / (1000 * 60)) % 60
-    val hours = (millis / (1000 * 60 * 60))
-
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%d:%02d", minutes, seconds)
-    }
 }
 
 @Composable
@@ -920,6 +906,8 @@ fun AlertsSection() {
 
 @Composable
 fun QuickActionsSection() {
+    val context = LocalContext.current
+
     StatusCard(
         title = "Quick Actions",
         icon = Icons.Filled.Dashboard
@@ -941,7 +929,10 @@ fun QuickActionsSection() {
                     text = "Help",
                     icon = Icons.AutoMirrored.Filled.Help,
                     modifier = Modifier.weight(1f)
-                ) { }
+                ) {
+                    val intent = Intent(context, com.example.cyclink.chat.HelpChatActivity::class.java)
+                    context.startActivity(intent)
+                }
             }
 
             QuickActionButton(
