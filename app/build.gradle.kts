@@ -17,6 +17,9 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Add manifest placeholders here
+        manifestPlaceholders["MAPS_API_KEY"] = project.findProperty("MAPS_API_KEY")?.toString() ?: ""
     }
 
     buildFeatures {
@@ -27,10 +30,12 @@ android {
     buildTypes {
         debug {
             val apiKey = project.findProperty("AI_STUDIO_API_KEY")?.toString() ?: ""
+            buildConfigField("String", "MAPS_API_KEY", "\"${project.findProperty("MAPS_API_KEY") ?: ""}\"")
             buildConfigField("String", "AI_STUDIO_API_KEY", "\"$apiKey\"")
             buildConfigField("String", "WEB_CLIENT_ID", "\"${project.findProperty("WEB_CLIENT_ID") ?: ""}\"")
         }
         release {
+            buildConfigField("String", "MAPS_API_KEY", "\"${project.findProperty("MAPS_API_KEY") ?: ""}\"")
             val apiKey = project.findProperty("AI_STUDIO_API_KEY")?.toString() ?: ""
             buildConfigField("String", "AI_STUDIO_API_KEY", "\"$apiKey\"")
             buildConfigField("String", "WEB_CLIENT_ID", "\"${project.findProperty("WEB_CLIENT_ID") ?: ""}\"")
@@ -52,6 +57,9 @@ android {
 }
 
 dependencies {
+    implementation("com.google.android.gms:play-services-maps:18.2.0")
+    implementation("com.google.android.gms:play-services-location:21.0.1")
+
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.2")
     implementation("androidx.compose.animation:animation:1.5.4")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")

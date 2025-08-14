@@ -12,8 +12,8 @@ import java.util.UUID
 import android.util.Log
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.foundation.rememberScrollState
-import com.example.cyclink.team.TeamMember
-import com.example.cyclink.team.TeamDashboardActivity
+import com.example.cyclink.com.example.cyclink.team.TeamMember
+import com.example.cyclink.com.example.cyclink.team.TeamDashboardActivity
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext

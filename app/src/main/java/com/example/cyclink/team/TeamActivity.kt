@@ -1,4 +1,4 @@
-package com.example.cyclink.team
+package com.example.cyclink.com.example.cyclink.team
 
 import android.content.Intent
 import android.os.Bundle

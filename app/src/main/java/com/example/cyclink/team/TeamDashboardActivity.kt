@@ -1,4 +1,4 @@
-package com.example.cyclink.team
+package com.example.cyclink.com.example.cyclink.team
 
 import android.content.Intent
 import android.os.Bundle
@@ -224,6 +224,7 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
                                 val intent = Intent(context, MemberMapActivity::class.java).apply {
                                     putExtra("memberId", member.id)
                                     putExtra("memberName", member.name)
+                                    putExtra("userId", member.id) // For Firestore queries
                                 }
                                 context.startActivity(intent)
                             }

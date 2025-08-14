@@ -1,30 +1,30 @@
 package com.example.cyclink.helpers
 
 data class SensorRecord(
-    val timestamp: Long,
-    val userId: String,
-    val sessionId: String,
+    val timestamp: Long = 0L,
+    val userId: String= "",
+    val sessionId: String= "",
     // MQTT sensor data
-    val heartRate: Double?,
-    val breathFrequency: Double?,
-    val hrv: Double?,
-    val intensity: Double?,
-    val accelerationX: Double?,
-    val accelerationY: Double?,
-    val accelerationZ: Double?,
-    val ecg: List<Double>?,
-    val respiration: List<Double>?,
-    val r2rIntervals: List<Double>?,
+    val heartRate: Double? = null,
+    val breathFrequency: Double? = null,
+    val hrv: Double? = null,
+    val intensity: Double? = null,
+    val accelerationX: Double? = null,
+    val accelerationY: Double? = null,
+    val accelerationZ: Double? = null,
+    val ecg: List<Double>? = null,
+    val respiration: List<Double>? = null,
+    val r2rIntervals: List<Double>? = null,
     // Phone sensor data
-    val phoneSpeed: Double?,
-    val phoneAccelerationX: Double?,
-    val phoneAccelerationY: Double?,
-    val phoneAccelerationZ: Double?,
+    val phoneSpeed: Double? = null,
+    val phoneAccelerationX: Double? = null,
+    val phoneAccelerationY: Double? = null,
+    val phoneAccelerationZ: Double? = null,
     // GPS data
-    val latitude: Double?,
-    val longitude: Double?,
-    val altitude: Double?,
-    val gpsAccuracy: Float?,
-    val gpsSpeed: Float?,
-    val gpsBearing: Float?
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val altitude: Double? = null,
+    val gpsAccuracy: Float? = null,
+    val gpsSpeed: Float? = null,
+    val gpsBearing: Float? = null
 )

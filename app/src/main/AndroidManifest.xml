@@ -4,15 +4,8 @@
     package="com.example.cyclink">
 
     <!-- Permissions for Bluetooth and Location -->
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-
-    <!-- For Android 12+ (API 31+) -->
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -29,6 +22,10 @@
         android:theme="@style/Theme.Cyclink"
         tools:targetApi="31">
 
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
+
         <activity android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
@@ -44,15 +41,15 @@
             android:name=".account.AccountActivity"
             android:exported="false" />
         <activity android:name=".sign_in.LoginActivity" />
-        <activity android:name=".team.TeamActivity" />
+        <activity android:name=".com.example.cyclink.team.TeamActivity" />
         <activity
-            android:name=".team.TeamDashboardActivity"
+            android:name=".com.example.cyclink.team.TeamDashboardActivity"
             android:exported="false" />
         <activity
-            android:name=".team.MemberDetailActivity"
+            android:name=".com.example.cyclink.team.MemberDetailActivity"
             android:exported="false" />
         <activity
-            android:name=".team.MemberMapActivity"
+            android:name=".com.example.cyclink.team.MemberMapActivity"
             android:exported="false" />
         <activity
             android:name=".chat.HelpChatActivity"

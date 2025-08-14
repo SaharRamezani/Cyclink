@@ -1,4 +1,4 @@
-package com.example.cyclink.team
+package com.example.cyclink.com.example.cyclink.team
 
 data class TeamMember(
     val id: String,
