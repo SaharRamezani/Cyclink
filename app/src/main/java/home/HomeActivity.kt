@@ -2,6 +2,7 @@ package com.example.cyclink.home
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import com.example.cyclink.team.TeamMapActivity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -963,7 +964,10 @@ fun QuickActionsSection() {
                     text = "Team Map",
                     icon = Icons.Filled.Place,
                     modifier = Modifier.weight(1f)
-                ) { }
+                ) {
+                    val intent = Intent(context, TeamMapActivity::class.java)
+                    context.startActivity(intent)
+                }
 
                 QuickActionButton(
                     text = "Help",
