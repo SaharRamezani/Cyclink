@@ -12,8 +12,8 @@ import java.util.UUID
 import android.util.Log
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.foundation.rememberScrollState
-import com.example.cyclink.com.example.cyclink.team.TeamMember
-import com.example.cyclink.com.example.cyclink.team.TeamDashboardActivity
+import com.example.cyclink.team.TeamMember
+import com.example.cyclink.team.TeamDashboardActivity
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
@@ -43,6 +43,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import com.example.cyclink.chat.HelpChatActivity
 import kotlinx.coroutines.delay
 import kotlin.math.sqrt
 import com.example.cyclink.helpers.SensorDataMessage
@@ -672,6 +673,8 @@ fun HomeScreen() {
                 Log.e("HomeActivity", "❌ Failed to save sensor record: ${error.message}")
             }
         )
+
+        mqttHelper.sendSensorDataToMqtt(sensorRecord = sensorRecord, FirebaseAuth.getInstance().currentUser?.uid ?: "")
     }
 
     // Phone sensor listener for acceleration and speed
@@ -930,7 +933,7 @@ fun QuickActionsSection() {
                     icon = Icons.AutoMirrored.Filled.Help,
                     modifier = Modifier.weight(1f)
                 ) {
-                    val intent = Intent(context, com.example.cyclink.chat.HelpChatActivity::class.java)
+                    val intent = Intent(context, HelpChatActivity::class.java)
                     context.startActivity(intent)
                 }
             }

@@ -1,6 +1,5 @@
 package com.example.cyclink.account
 
-import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -38,9 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cyclink.R
-import com.example.cyclink.home.HomeActivity
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 
 class AccountActivity : ComponentActivity() {

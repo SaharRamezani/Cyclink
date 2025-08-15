@@ -1,9 +1,12 @@
 package com.example.cyclink.helpers
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class SensorRecord(
-    val timestamp: Long = 0L,
-    val userId: String= "",
-    val sessionId: String= "",
+    val timestamp: Long,
+    val userId: String = "",
+    val sessionId: String,
     // MQTT sensor data
     val heartRate: Double? = null,
     val breathFrequency: Double? = null,
@@ -20,9 +23,9 @@ data class SensorRecord(
     val phoneAccelerationX: Double? = null,
     val phoneAccelerationY: Double? = null,
     val phoneAccelerationZ: Double? = null,
-    // GPS data
-    val latitude: Double? = null,
-    val longitude: Double? = null,
+    // GPS data - must be non-null since they're required
+    val latitude: Double,
+    val longitude: Double,
     val altitude: Double? = null,
     val gpsAccuracy: Float? = null,
     val gpsSpeed: Float? = null,

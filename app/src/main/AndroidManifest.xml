@@ -26,10 +26,12 @@
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_API_KEY}" />
 
-        <activity android:name=".MainActivity"
+        <activity
+            android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
@@ -41,19 +43,20 @@
             android:name=".account.AccountActivity"
             android:exported="false" />
         <activity android:name=".sign_in.LoginActivity" />
-        <activity android:name=".com.example.cyclink.team.TeamActivity" />
+        <activity android:name=".team.TeamActivity" />
         <activity
-            android:name=".com.example.cyclink.team.TeamDashboardActivity"
+            android:name=".team.TeamDashboardActivity"
             android:exported="false" />
         <activity
-            android:name=".com.example.cyclink.team.MemberDetailActivity"
+            android:name=".team.MemberDetailActivity"
             android:exported="false" />
         <activity
-            android:name=".com.example.cyclink.team.MemberMapActivity"
+            android:name=".team.MemberMapActivity"
             android:exported="false" />
         <activity
             android:name=".chat.HelpChatActivity"
             android:exported="false"
             android:theme="@style/Theme.Cyclink" />
     </application>
+
 </manifest>

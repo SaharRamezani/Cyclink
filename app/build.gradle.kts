@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.google.gms.google.services)
     alias(libs.plugins.kotlin.compose)
     kotlin("plugin.serialization") version "1.9.20"
+    id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
 }
 
 android {
@@ -18,27 +19,39 @@ android {
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Add manifest placeholders here
+        // Add manifest placeholders here for all build types
         manifestPlaceholders["MAPS_API_KEY"] = project.findProperty("MAPS_API_KEY")?.toString() ?: ""
     }
 
     buildFeatures {
         buildConfig = true
         compose = true
+        viewBinding = true
     }
 
     buildTypes {
         debug {
             val apiKey = project.findProperty("AI_STUDIO_API_KEY")?.toString() ?: ""
-            buildConfigField("String", "MAPS_API_KEY", "\"${project.findProperty("MAPS_API_KEY") ?: ""}\"")
+            val mapsApiKey = project.findProperty("MAPS_API_KEY")?.toString() ?: ""
+
+            buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
             buildConfigField("String", "AI_STUDIO_API_KEY", "\"$apiKey\"")
             buildConfigField("String", "WEB_CLIENT_ID", "\"${project.findProperty("WEB_CLIENT_ID") ?: ""}\"")
+
+            // Ensure manifest placeholder is set for debug
+            manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         }
         release {
-            buildConfigField("String", "MAPS_API_KEY", "\"${project.findProperty("MAPS_API_KEY") ?: ""}\"")
             val apiKey = project.findProperty("AI_STUDIO_API_KEY")?.toString() ?: ""
+            val mapsApiKey = project.findProperty("MAPS_API_KEY")?.toString() ?: ""
+
+            buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
             buildConfigField("String", "AI_STUDIO_API_KEY", "\"$apiKey\"")
             buildConfigField("String", "WEB_CLIENT_ID", "\"${project.findProperty("WEB_CLIENT_ID") ?: ""}\"")
+
+            // Ensure manifest placeholder is set for release
+            manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
+
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -56,7 +69,13 @@ android {
     }
 }
 
+secrets {
+    defaultPropertiesFileName = "local.defaults.properties"
+    propertiesFileName = "local.properties"
+}
+
 dependencies {
+    implementation("com.google.maps.android:maps-compose:2.11.4")
     implementation("com.google.android.gms:play-services-maps:18.2.0")
     implementation("com.google.android.gms:play-services-location:21.0.1")
 
@@ -87,6 +106,8 @@ dependencies {
     implementation(libs.androidx.runner)
     implementation(libs.firebase.firestore.ktx)
     implementation(libs.firebase.firestore)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.constraintlayout)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

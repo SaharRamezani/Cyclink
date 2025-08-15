@@ -22,7 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.cyclink.profile.ProfileScreen
-import com.example.cyclink.com.example.cyclink.team.TeamActivity
+import com.example.cyclink.team.TeamActivity
 import com.google.android.gms.auth.api.identity.Identity
 import kotlinx.coroutines.launch
 
