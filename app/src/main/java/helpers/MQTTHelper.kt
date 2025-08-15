@@ -7,12 +7,11 @@ import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
-import com.example.cyclink.team.LocationData
 import org.json.JSONObject
 
 class MQTTHelper(private val context: Context) {
     private var mqttClient: MqttClient? = null
-    private val brokerUrl = "tcp://192.168.103.151:1883" // Replace with your MQTT broker URL
+    private val brokerUrl = "tcp://192.168.103.151:1883"
     private val clientId = "CyclinkApp_${System.currentTimeMillis()}"
     private val publishTopic = "cyclink/sensor_data"
     private val subscribeTopic = "sensor/howdy/data"
@@ -23,26 +22,6 @@ class MQTTHelper(private val context: Context) {
 
     fun sendSensorDataToMqtt(sensorRecord: SensorRecord, userId: String) {
         try {
-            // Create a proper serializable LocationData object
-            val locationData = LocationData(
-                latitude = sensorRecord.latitude,
-                longitude = sensorRecord.longitude,
-                userId = userId,
-                timestamp = sensorRecord.timestamp
-            )
-
-            val locationTopic = "location/$userId"
-            val locationMessage = Json.encodeToString(locationData)
-
-            publishMessage(locationTopic, locationMessage) { success ->
-                if (success) {
-                    Log.d(TAG, "📡 Location data sent to MQTT: ${sensorRecord.latitude}, ${sensorRecord.longitude}")
-                } else {
-                    Log.e(TAG, "❌ Failed to send location data to MQTT")
-                }
-            }
-
-            // Send complete sensor data
             val sensorTopic = "sensorData/$userId"
             val sensorMessage = Json.encodeToString(sensorRecord.copy(userId = userId))
 
@@ -53,37 +32,99 @@ class MQTTHelper(private val context: Context) {
                     Log.e(TAG, "❌ Failed to send sensor data to MQTT")
                 }
             }
-
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error sending sensor data to MQTT: ${e.message}")
         }
     }
 
-    fun publishMessage(topic: String, message: String, callback: (Boolean) -> Unit) {
-        try {
-            if (mqttClient?.isConnected == true) {
-                mqttClient?.publish(topic, MqttMessage(message.toByteArray()))?.apply {
-                    var actionCallback = object : IMqttActionListener {
-                        override fun onSuccess(asyncActionToken: IMqttToken?) {
-                            callback(true)
-                        }
+    fun connectAndSubscribeToUser(
+        userId: String,
+        onConnected: () -> Unit = {},
+        onLocationUpdate: (SensorRecord) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                mqttClient = MqttClient(brokerUrl, "${clientId}_$userId", MemoryPersistence())
 
-                        override fun onFailure(
-                            asyncActionToken: IMqttToken?,
-                            exception: Throwable?
-                        ) {
-                            Log.e(TAG, "Failed to publish message to $topic", exception)
-                            callback(false)
+                val options = MqttConnectOptions().apply {
+                    isCleanSession = true
+                    connectionTimeout = 30
+                    keepAliveInterval = 60
+                }
+
+                mqttClient?.setCallback(object : MqttCallback {
+                    override fun connectionLost(cause: Throwable?) {
+                        Log.w(TAG, "MQTT connection lost for user $userId", cause)
+                    }
+
+                    override fun messageArrived(topic: String?, message: MqttMessage?) {
+                        try {
+                            message?.let { msg ->
+                                val messageStr = String(msg.payload)
+                                Log.d(TAG, "📨 Location data received for user $userId on topic: $topic")
+
+                                val sensorRecord = Json.decodeFromString<SensorRecord>(messageStr)
+                                if (sensorRecord.userId == userId) {
+                                    onLocationUpdate(sensorRecord)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error parsing location message for user $userId", e)
                         }
                     }
+
+                    override fun deliveryComplete(token: IMqttDeliveryToken?) {
+                        Log.d(TAG, "Message delivery complete for user $userId")
+                    }
+                })
+
+                // Connect synchronously
+                mqttClient?.connect(options)
+
+                // Subscribe after successful connection
+                val userTopic = "sensorData/$userId"
+                mqttClient?.subscribe(userTopic, 1)
+                Log.d(TAG, "✅ Connected to MQTT and subscribed to $userTopic")
+
+                withContext(Dispatchers.Main) {
+                    onConnected()
                 }
-            } else {
-                Log.w(TAG, "MQTT client not connected")
-                callback(false)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to connect to MQTT for user $userId", e)
+                withContext(Dispatchers.Main) {
+                    onError(e.message ?: "Unknown error")
+                }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception in publishMessage", e)
-            callback(false)
+        }
+    }
+
+    fun publishMessage(topic: String, message: String, callback: (Boolean) -> Unit) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (mqttClient?.isConnected == true) {
+                    val mqttMessage = MqttMessage(message.toByteArray())
+                    mqttMessage.qos = 1
+
+                    mqttClient?.publish(topic, mqttMessage)
+                    Log.d(TAG, "✅ Successfully published message to $topic")
+
+                    withContext(Dispatchers.Main) {
+                        callback(true)
+                    }
+                } else {
+                    Log.w(TAG, "MQTT client not connected")
+                    withContext(Dispatchers.Main) {
+                        callback(false)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception in publishMessage", e)
+                withContext(Dispatchers.Main) {
+                    callback(false)
+                }
+            }
         }
     }
 
@@ -92,75 +133,79 @@ class MQTTHelper(private val context: Context) {
         onError: (String) -> Unit = {},
         onSensorDataReceived: (SensorDataMessage) -> Unit = {}
     ) {
-        try {
-            mqttClient = MqttClient(brokerUrl, clientId, MemoryPersistence())
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                mqttClient = MqttClient(brokerUrl, clientId, MemoryPersistence())
 
-            val options = MqttConnectOptions().apply {
-                isCleanSession = true
-                connectionTimeout = 30
-                keepAliveInterval = 60
-            }
-
-            mqttClient?.setCallback(object : MqttCallback {
-                override fun connectionLost(cause: Throwable?) {
-                    Log.w(TAG, "MQTT connection lost", cause)
+                val options = MqttConnectOptions().apply {
+                    isCleanSession = true
+                    connectionTimeout = 30
+                    keepAliveInterval = 60
                 }
 
-                override fun messageArrived(topic: String?, message: MqttMessage?) {
-                    try {
-                        message?.let { msg ->
-                            val messageStr = String(msg.payload)
-                            Log.d(TAG, "📨 MQTT message received on topic: $topic")
-                            Log.d(TAG, "📨 Message content: $messageStr")
-
-                            // Parse JSON message
-                            val jsonObject = JSONObject(messageStr)
-
-                            if (jsonObject.has("measureType") &&
-                                jsonObject.has("value") &&
-                                jsonObject.has("userId")) {
-
-                                val sensorData = Json.decodeFromString<SensorDataMessage>(messageStr)
-                                onSensorDataReceived(sensorData)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error parsing MQTT message", e)
+                mqttClient?.setCallback(object : MqttCallback {
+                    override fun connectionLost(cause: Throwable?) {
+                        Log.w(TAG, "MQTT connection lost", cause)
                     }
+
+                    override fun messageArrived(topic: String?, message: MqttMessage?) {
+                        try {
+                            message?.let { msg ->
+                                val messageStr = String(msg.payload)
+                                Log.d(TAG, "📨 MQTT message received on topic: $topic")
+
+                                val jsonObject = JSONObject(messageStr)
+                                if (jsonObject.has("measureType") &&
+                                    jsonObject.has("value") &&
+                                    jsonObject.has("userId")) {
+
+                                    val sensorData = Json.decodeFromString<SensorDataMessage>(messageStr)
+                                    onSensorDataReceived(sensorData)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error parsing MQTT message", e)
+                        }
+                    }
+
+                    override fun deliveryComplete(token: IMqttDeliveryToken?) {
+                        Log.d(TAG, "Message delivery complete")
+                    }
+                })
+
+                mqttClient?.connect(options)
+                mqttClient?.subscribe(subscribeTopic, 1)
+                Log.d(TAG, "✅ Connected to MQTT broker and subscribed to $subscribeTopic")
+
+                withContext(Dispatchers.Main) {
+                    onConnected()
                 }
 
-                override fun deliveryComplete(token: IMqttDeliveryToken?) {
-                    Log.d(TAG, "Message delivery complete")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to connect to MQTT broker", e)
+                withContext(Dispatchers.Main) {
+                    onError(e.message ?: "Unknown error")
                 }
-            })
-
-            mqttClient?.connect(options)
-
-            // Subscribe to sensor data topic
-            mqttClient?.subscribe(subscribeTopic, 1)
-            Log.d(TAG, "✅ Connected to MQTT broker and subscribed to $subscribeTopic")
-            onConnected()
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect to MQTT broker", e)
-            onError(e.message ?: "Unknown error")
+            }
         }
     }
 
     fun publishSensorData(data: MQTTSensorData) {
-        try {
-            if (mqttClient?.isConnected == true) {
-                val jsonString = Json.encodeToString(data)
-                val message = MqttMessage(jsonString.toByteArray())
-                message.qos = 1
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (mqttClient?.isConnected == true) {
+                    val jsonString = Json.encodeToString(data)
+                    val message = MqttMessage(jsonString.toByteArray())
+                    message.qos = 1
 
-                mqttClient?.publish(publishTopic, message)
-                Log.d(TAG, "Published sensor data: $jsonString")
-            } else {
-                Log.w(TAG, "MQTT client not connected")
+                    mqttClient?.publish(publishTopic, message)
+                    Log.d(TAG, "Published sensor data: $jsonString")
+                } else {
+                    Log.w(TAG, "MQTT client not connected")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to publish sensor data", e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to publish sensor data", e)
         }
     }
 
