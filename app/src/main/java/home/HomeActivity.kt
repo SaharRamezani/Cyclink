@@ -126,8 +126,8 @@ fun HeaderSection() {
 fun PersonalStatusSection(
     heartRate: Double,
     breathFrequency: Double,
-    hrv: Double,
-    intensity: Double
+    intensity: Double,
+    calculatedSpeed: Double
 ) {
     StatusCard(
         title = "Personal Status",
@@ -146,7 +146,7 @@ fun PersonalStatusSection(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                VitalMetric("HRV", "${String.format("%.1f", hrv)} ms", Icons.Filled.Timeline)
+                VitalMetric("Speed", "${String.format("%.1f", calculatedSpeed)} km/h", Icons.Filled.Timeline)
                 VitalMetric("Intensity", "${String.format("%.1f", intensity)}", Icons.Filled.FitnessCenter)
             }
         }
@@ -351,10 +351,10 @@ fun SessionSummarySection(
                     "Distance",
                     "${String.format("%.2f", totalDistance)} km"
                 )
-                StatItem(
-                    "Speed",
-                    "${String.format("%.1f", if (isRiding) currentSpeed else 0.0)} km/h"
-                )
+//                StatItem(
+//                    "Speed",
+//                    "${String.format("%.1f", if (isRiding) currentSpeed else 0.0)} km/h"
+//                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -571,6 +571,12 @@ fun HomeScreen() {
     var userRole by remember { mutableStateOf("member") }
     var isRiding by remember { mutableStateOf(false) }
 
+    // State variables for speed calculation
+    var calculatedSpeed by remember { mutableStateOf(0.0) }
+    var lastAccelerationTime by remember { mutableStateOf(0L) }
+    var velocity by remember { mutableStateOf(0.0) }
+    var lastAccelerationMagnitude by remember { mutableStateOf(0.0) }
+
     // Session ID for grouping records
     var sessionId by remember { mutableStateOf("") }
 
@@ -619,6 +625,41 @@ fun HomeScreen() {
         } else if (!isRiding) {
             // Keep session ID for potential resume
         }
+    }
+
+    fun updateSpeedFromAcceleration() {
+        val currentTime = System.currentTimeMillis()
+        val accelerationMagnitude = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
+
+        // Remove gravity (approximately 9.8 m/s²)
+        val netAcceleration = kotlin.math.abs(accelerationMagnitude - 9.8)
+
+        if (lastAccelerationTime > 0) {
+            val deltaTime = (currentTime - lastAccelerationTime) / 1000.0 // Convert to seconds
+
+            if (deltaTime > 0 && deltaTime < 2.0) { // Reasonable time delta
+                // Update velocity using acceleration
+                velocity += netAcceleration * deltaTime
+
+                // Apply some damping to prevent unrealistic speeds
+                velocity *= 0.85
+
+                // Convert to km/h and apply smoothing
+                val newSpeed = kotlin.math.abs(velocity * 3.6)
+                calculatedSpeed = (calculatedSpeed * 0.7) + (newSpeed * 0.3)
+
+                // Cap maximum speed for cycling (reasonable limit)
+                calculatedSpeed = kotlin.math.min(calculatedSpeed, 60.0)
+
+                Log.d("HomeActivity", "🚴 Speed calculated: ${String.format("%.1f", calculatedSpeed)} km/h")
+            }
+        }
+
+        lastAccelerationTime = currentTime
+        lastAccelerationMagnitude = accelerationMagnitude
+
+        // Update intensity
+        intensity = accelerationMagnitude
     }
 
     // Function to save complete sensor record to Firestore
@@ -759,18 +800,15 @@ fun HomeScreen() {
             }
             "AccelerationX" -> {
                 accelerationX = averageValue
-                intensity = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
-                Log.d("HomeActivity", "📐 AccelerationX: $averageValue → Intensity: $intensity")
+                updateSpeedFromAcceleration() // Call when X acceleration updates
             }
             "AccelerationY" -> {
                 accelerationY = averageValue
-                intensity = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
-                Log.d("HomeActivity", "📐 AccelerationY: $averageValue → Intensity: $intensity")
+                updateSpeedFromAcceleration() // Call when Y acceleration updates
             }
             "AccelerationZ" -> {
                 accelerationZ = averageValue
-                intensity = sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ)
-                Log.d("HomeActivity", "📐 AccelerationZ: $averageValue → Intensity: $intensity")
+                updateSpeedFromAcceleration() // Call when Z acceleration updates
             }
             else -> {
                 Log.w("HomeActivity", "❓ Unknown measurement: ${sensorData.measureType}")
@@ -841,7 +879,6 @@ fun HomeScreen() {
         }
     }
 
-    // Rest of your UI code remains the same...
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -862,7 +899,7 @@ fun HomeScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             HeaderSection()
-            PersonalStatusSection(heartRate, breathFrequency, hrv, intensity)
+            PersonalStatusSection(heartRate, breathFrequency, intensity, calculatedSpeed)
             SessionSummarySection(
                 isRiding = isRiding,
                 onRideToggle = { newState -> isRiding = newState },

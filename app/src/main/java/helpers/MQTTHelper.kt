@@ -13,7 +13,6 @@ class MQTTHelper(private val context: Context) {
     private var mqttClient: MqttClient? = null
     private val brokerUrl = "tcp://192.168.103.151:1883"
     private val clientId = "CyclinkApp_${System.currentTimeMillis()}"
-    private val publishTopic = "cyclink/sensor_data"
     private val subscribeTopic = "sensor/howdy/data"
 
     companion object {
@@ -27,7 +26,7 @@ class MQTTHelper(private val context: Context) {
 
             publishMessage(sensorTopic, sensorMessage) { success ->
                 if (success) {
-                    Log.d(TAG, "📡 Complete sensor data sent to MQTT")
+                    Log.d(TAG, "📡 Complete sensor data sent to MQTT sensorData/$userId")
                 } else {
                     Log.e(TAG, "❌ Failed to send sensor data to MQTT")
                 }
@@ -186,25 +185,6 @@ class MQTTHelper(private val context: Context) {
                 withContext(Dispatchers.Main) {
                     onError(e.message ?: "Unknown error")
                 }
-            }
-        }
-    }
-
-    fun publishSensorData(data: MQTTSensorData) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                if (mqttClient?.isConnected == true) {
-                    val jsonString = Json.encodeToString(data)
-                    val message = MqttMessage(jsonString.toByteArray())
-                    message.qos = 1
-
-                    mqttClient?.publish(publishTopic, message)
-                    Log.d(TAG, "Published sensor data: $jsonString")
-                } else {
-                    Log.w(TAG, "MQTT client not connected")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to publish sensor data", e)
             }
         }
     }
