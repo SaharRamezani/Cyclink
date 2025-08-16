@@ -273,14 +273,12 @@ fun TeamDashboardSection() {
 fun SessionSummarySection(
     isRiding: Boolean,
     onRideToggle: (Boolean) -> Unit,
-    currentGPS: GPSData?,
-    speed: Double
+    currentGPS: GPSData?
 ) {
     var startTime by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
     var totalDistance by remember { mutableStateOf(0.0) }
     var lastGPS by remember { mutableStateOf<GPSData?>(null) }
-    var currentSpeed by remember { mutableStateOf(0.0) }
 
     // Timer for duration tracking - keeps running even when stopped
     LaunchedEffect(isRiding) {
@@ -307,7 +305,7 @@ fun SessionSummarySection(
         }
     }
 
-    // GPS distance and real-time speed calculation
+    // GPS distance
     LaunchedEffect(currentGPS, isRiding) {
         if (isRiding && currentGPS != null) {
             lastGPS?.let { lastLocation ->
@@ -316,22 +314,12 @@ fun SessionSummarySection(
                     currentGPS.latitude, currentGPS.longitude
                 )
 
-                // Calculate real-time speed based on GPS movement
-                val timeElapsed = 1.0 // Assume 1 second between updates
                 if (distance > 0.005) { // 5 meters in km
                     totalDistance += distance
-                    // Convert km/s to km/h for real-time speed
-                    currentSpeed = (distance / timeElapsed) * 3600 // km/h
-                    Log.d("HomeActivity", "📍 Distance: ${String.format("%.3f", distance)}km, Speed: ${String.format("%.1f", currentSpeed)} km/h")
-                } else {
-                    // No significant movement, speed is 0
-                    currentSpeed = 0.0
+                    Log.d("HomeActivity", "📍 Distance: ${String.format("%.3f", distance)}km")
                 }
             }
             lastGPS = currentGPS
-        } else if (!isRiding) {
-            // Reset real-time speed when not riding
-            currentSpeed = 0.0
         }
     }
 
@@ -352,10 +340,6 @@ fun SessionSummarySection(
                     "Distance",
                     "${String.format("%.2f", totalDistance)} km"
                 )
-//                StatItem(
-//                    "Speed",
-//                    "${String.format("%.1f", if (isRiding) currentSpeed else 0.0)} km/h"
-//                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -370,7 +354,6 @@ fun SessionSummarySection(
                         startTime = 0L
                         duration = 0L
                         totalDistance = 0.0
-                        currentSpeed = 0.0
                         lastGPS = null
                         Log.d("HomeActivity", "📊 Session reset")
                     },
@@ -413,8 +396,85 @@ fun SessionSummarySection(
                     )
                 }
             }
+
+            // Finish & Save button (only show when stopped and has data)
+            if (!isRiding && startTime > 0 && (duration > 0 || totalDistance > 0)) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        saveRideRecord(context, duration, totalDistance, startTime)
+                        // Reset after saving
+                        startTime = 0L
+                        duration = 0L
+                        totalDistance = 0.0
+                        lastGPS = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colorResource(id = R.color.cerulean)
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Save,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Finish & Save Record",
+                        color = colorResource(id = R.color.honeydew),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
         }
     }
+}
+
+private fun saveRideRecord(context: android.content.Context, duration: Long, distance: Double, startTime: Long) {
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
+    val currentUser = auth.currentUser
+
+    if (currentUser == null) {
+        Log.e("HomeActivity", "No authenticated user for saving record")
+        return
+    }
+
+    val finishTime = System.currentTimeMillis()
+    val rideRecord = hashMapOf(
+        "userId" to currentUser.uid,
+        "duration" to duration,
+        "distance" to distance,
+        "startTime" to startTime,
+        "finishTime" to finishTime,
+        "date" to java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date(finishTime)),
+        "startHour" to java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date(startTime)),
+        "finishHour" to java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date(finishTime)),
+        "participants" to listOf(currentUser.uid) // Will be expanded for team rides
+    )
+
+    db.collection("ride_records")
+        .add(rideRecord)
+        .addOnSuccessListener { documentReference ->
+            Log.d("HomeActivity", "✅ Ride record saved with ID: ${documentReference.id}")
+            android.widget.Toast.makeText(
+                context,
+                "Ride record saved successfully!",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+        .addOnFailureListener { e ->
+            Log.e("HomeActivity", "❌ Error saving ride record", e)
+            android.widget.Toast.makeText(
+                context,
+                "Failed to save ride record",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
 }
 
 // Updated helper function to format duration with hours
@@ -587,9 +647,6 @@ fun HomeScreen() {
     var hrv by remember { mutableStateOf(0.0) }
     var intensity by remember { mutableStateOf(0.0) }
     var currentGPS by remember { mutableStateOf<GPSData?>(null) }
-
-    // Phone speed for session summary
-    var phoneSpeed by remember { mutableStateOf(0.0) }
 
     // Phone acceleration data
     var phoneAccelerationX by remember { mutableStateOf(0.0) }
@@ -904,8 +961,7 @@ fun HomeScreen() {
             SessionSummarySection(
                 isRiding = isRiding,
                 onRideToggle = { newState -> isRiding = newState },
-                currentGPS = currentGPS,
-                speed = phoneSpeed
+                currentGPS = currentGPS
             )
             AlertsSection()
             QuickActionsSection()
@@ -980,10 +1036,13 @@ fun QuickActionsSection() {
             }
 
             QuickActionButton(
-                text = "Settings",
-                icon = Icons.Filled.Settings,
+                text = "History & Records",
+                icon = Icons.Filled.History,
                 modifier = Modifier.fillMaxWidth()
-            ) { }
+            ) {
+                val intent = Intent(context, RideHistoryActivity::class.java)
+                context.startActivity(intent)
+            }
         }
     }
 }
