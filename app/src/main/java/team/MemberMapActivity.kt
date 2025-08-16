@@ -49,7 +49,7 @@ fun MapScreen(mqttHelper: MQTTHelper, userId: String) {
     val context = LocalContext.current
 
     // State for user location
-    var userLocation by remember { mutableStateOf(LatLng(1.35, 103.87)) } // Default Singapore
+    var userLocation by remember { mutableStateOf(LatLng(44.402870, 8.971173)) } // Default Singapore
     var isLocationReceived by remember { mutableStateOf(false) }
 
     val markerState = rememberMarkerState(position = userLocation)

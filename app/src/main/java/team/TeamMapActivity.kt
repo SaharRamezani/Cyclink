@@ -71,7 +71,7 @@ fun TeamMapScreen(mqttHelper: MQTTHelper, db: FirebaseFirestore, auth: FirebaseA
     var currentTeamId by remember { mutableStateOf<String?>(null) }
 
     // Map states
-    val defaultLocation = LatLng(1.35, 103.87) // Singapore
+    val defaultLocation = LatLng(44.402870, 8.971173)
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(defaultLocation, 15f)
     }
