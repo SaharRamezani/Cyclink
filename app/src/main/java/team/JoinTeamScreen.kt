@@ -308,11 +308,18 @@ private fun joinTeam(
                     "memberNames", FieldValue.arrayUnion(user.displayName ?: "Unknown")
                 )
                 .addOnSuccessListener {
-                    // Update user's team info
+                    // Create or update user's document with team info
+                    val userData = hashMapOf(
+                        "uid" to user.uid,
+                        "email" to user.email,
+                        "displayName" to user.displayName,
+                        "currentTeam" to userTeamData
+                    )
+
                     db.collection("users").document(user.uid)
-                        .update("currentTeam", userTeamData)
+                        .set(userData, com.google.firebase.firestore.SetOptions.merge())
                         .addOnSuccessListener {
-                            println("User document updated successfully")
+                            println("User document created/updated successfully")
                             onSuccess()
                         }
                         .addOnFailureListener {

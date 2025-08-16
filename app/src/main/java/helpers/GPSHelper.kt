@@ -131,4 +131,55 @@ class GPSHelper(private val context: Context) {
         locationListener = null
         onLocationUpdate = null
     }
+
+    fun requestImmediateLocation(callback: (GPSData?) -> Unit) {
+        if (!hasLocationPermissions()) {
+            callback(null)
+            return
+        }
+
+        try {
+            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+            // Try to get last known location first
+            val lastKnown = getLastKnownLocation()
+            if (lastKnown != null) {
+                callback(lastKnown)
+                return
+            }
+
+            // Request a single location update
+            val singleUpdateListener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    val gpsData = GPSData(
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        altitude = location.altitude,
+                        accuracy = location.accuracy,
+                        speed = if (location.hasSpeed()) location.speed else 0f,
+                        bearing = if (location.hasBearing()) location.bearing else 0f,
+                        timestamp = location.time
+                    )
+                    callback(gpsData)
+                    locationManager.removeUpdates(this)
+                }
+
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+            }
+
+            // Request single update from both providers
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, singleUpdateListener, null)
+            }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, singleUpdateListener, null)
+            }
+
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Security exception when requesting immediate location", e)
+            callback(null)
+        }
+    }
 }

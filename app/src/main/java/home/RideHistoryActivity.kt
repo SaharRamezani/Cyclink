@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -54,6 +55,7 @@ class RideHistoryActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RideHistoryScreen() {
+    val context = LocalContext.current
     var rideRecords by remember { mutableStateOf<List<RideRecord>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -87,7 +89,7 @@ fun RideHistoryScreen() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { /* Handle back navigation */ }
+                    onClick = { (context as? ComponentActivity)?.finish() }
                 ) {
                     Icon(
                         Icons.Filled.ArrowBack,

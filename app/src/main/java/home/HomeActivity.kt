@@ -1,27 +1,27 @@
 package com.example.cyclink.home
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Bundle
-import com.example.cyclink.team.TeamMapActivity
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import com.example.cyclink.helpers.FirestoreHelper
-import com.example.cyclink.helpers.SensorRecord
-import java.util.UUID
-import android.util.Log
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.foundation.rememberScrollState
-import com.example.cyclink.team.TeamMember
-import com.example.cyclink.team.TeamDashboardActivity
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.platform.LocalContext
-import android.content.Intent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,33 +30,57 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.cyclink.R
+import com.example.cyclink.chat.HelpChatActivity
+import com.example.cyclink.helpers.*
+import com.example.cyclink.team.TeamDashboardActivity
+import com.example.cyclink.team.TeamMapActivity
+import com.example.cyclink.team.TeamMember
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.example.cyclink.helpers.GPSData
-import com.example.cyclink.helpers.MQTTHelper
-import com.example.cyclink.helpers.GPSHelper
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import com.example.cyclink.chat.HelpChatActivity
 import kotlinx.coroutines.delay
+import java.util.UUID
 import kotlin.math.sqrt
-import com.example.cyclink.helpers.SensorDataMessage
 
 class HomeActivity : ComponentActivity() {
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions: Map<String, Boolean> ->
+        val fineLocationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
+        val coarseLocationGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
+
+        Log.d("HomeActivity", "🔐 Permission results - Fine: $fineLocationGranted, Coarse: $coarseLocationGranted")
+
+        if (fineLocationGranted || coarseLocationGranted) {
+            Log.d("HomeActivity", "✅ Location permissions granted!")
+        } else {
+            Log.e("HomeActivity", "❌ Location permissions denied!")
+        }
+    }
+
+    // Single onCreate method
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                HomeScreen()
+                HomeScreen(requestPermissions = ::requestLocationPermissions)
             }
         }
+    }
+
+    private fun requestLocationPermissions() {
+        requestPermissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        )
     }
 }
 
@@ -236,7 +260,6 @@ fun TeamDashboardSection() {
                 teamMembers.forEachIndexed { index, member ->
                     TeamMemberItem(
                         name = member.name,
-                        distance = "${(index + 1) * 50}m away",
                         healthStatus = member.status
                     )
                     if (index < teamMembers.size - 1) {
@@ -275,6 +298,7 @@ fun SessionSummarySection(
     onRideToggle: (Boolean) -> Unit,
     currentGPS: GPSData?
 ) {
+    val context = LocalContext.current
     var startTime by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
     var totalDistance by remember { mutableStateOf(0.0) }
@@ -566,7 +590,7 @@ fun VitalMetric(label: String, value: String, icon: ImageVector) {
 }
 
 @Composable
-fun TeamMemberItem(name: String, distance: String, healthStatus: String) {
+fun TeamMemberItem(name: String, healthStatus: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -576,12 +600,6 @@ fun TeamMemberItem(name: String, distance: String, healthStatus: String) {
             text = name,
             fontWeight = FontWeight.Medium,
             color = colorResource(id = R.color.berkeley_blue)
-        )
-        Icon(
-            if (healthStatus == "Good") Icons.Filled.CheckCircle else Icons.Filled.Warning,
-            contentDescription = healthStatus,
-            tint = if (healthStatus == "Good") colorResource(id = R.color.cerulean) else colorResource(id = R.color.red_pantone),
-            modifier = Modifier.size(16.dp)
         )
     }
 }
@@ -626,8 +644,11 @@ fun StatItem(label: String, value: String) {
 }
 
 @Composable
-fun HomeScreen() {
+fun HomeScreen(requestPermissions: () -> Unit = {}) {
     val context = LocalContext.current
+
+    var hasLocationPermission by remember { mutableStateOf(false) }
+
     val scrollState = rememberScrollState()
     var userRole by remember { mutableStateOf("member") }
     var isRiding by remember { mutableStateOf(false) }
@@ -674,6 +695,27 @@ fun HomeScreen() {
     // Phone sensors
     val sensorManager = remember { context.getSystemService(android.content.Context.SENSOR_SERVICE) as SensorManager }
     val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+
+    LaunchedEffect(Unit) {
+        val fineLocationGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val coarseLocationGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        hasLocationPermission = fineLocationGranted || coarseLocationGranted
+
+        Log.d("HomeActivity", "🔐 Location permissions - Fine: $fineLocationGranted, Coarse: $coarseLocationGranted")
+
+        if (!hasLocationPermission) {
+            Log.w("HomeActivity", "❌ No location permissions granted! Requesting...")
+            requestPermissions()
+        }
+    }
 
     // Generate session ID when ride starts
     LaunchedEffect(isRiding) {
@@ -722,7 +764,7 @@ fun HomeScreen() {
 
     // Function to save complete sensor record to Firestore
     // Update the saveSensorRecord function to ensure GPS data is included
-    fun saveSensorRecord(mqttData: SensorDataMessage?) {
+    fun saveSensorRecord() {
         val currentTime = System.currentTimeMillis()
 
         // Ensure we have GPS data before saving
@@ -748,7 +790,6 @@ fun HomeScreen() {
             respiration = respirationData,
             r2rIntervals = if (rrIntervals.isNotEmpty()) rrIntervals else null,
             // Phone sensor data
-            phoneSpeed = if (phoneSpeed > 0) phoneSpeed else null,
             phoneAccelerationX = if (phoneAccelerationX != 0.0) phoneAccelerationX else null,
             phoneAccelerationY = if (phoneAccelerationY != 0.0) phoneAccelerationY else null,
             phoneAccelerationZ = if (phoneAccelerationZ != 0.0) phoneAccelerationZ else null,
@@ -799,7 +840,6 @@ fun HomeScreen() {
                     currentAcceleration = sqrt(x * x + y * y + z * z)
                     val delta = currentAcceleration - lastAcceleration
                     velocityEstimate += delta * 0.1
-                    phoneSpeed = kotlin.math.abs(velocityEstimate * 0.5)
                 }
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -875,19 +915,35 @@ fun HomeScreen() {
 
         // Save to Firestore after processing MQTT data
         if (isRiding && sessionId.isNotEmpty()) {
-            saveSensorRecord(sensorData)
+            saveSensorRecord()
         }
     }
 
-    // Auto-save sensor records periodically when riding (even without MQTT data)
-    LaunchedEffect(isRiding, currentGPS, phoneSpeed) {
+    // Auto-save sensor records periodically when riding (only when GPS is available)
+    LaunchedEffect(isRiding, sessionId) {
         if (isRiding && sessionId.isNotEmpty()) {
-            while (isRiding) {
-                delay(10000) // Save every 10 seconds
+            Log.d("HomeActivity", "🔄 Starting periodic save routine...")
 
-                // Save current state even if no new MQTT data
-                saveSensorRecord(null)
-                Log.d("HomeActivity", "💾 Periodic sensor record saved")
+            // Wait for GPS data with timeout
+            var waitCount = 0
+            while (isRiding && currentGPS == null && waitCount < 30) { // 30 second timeout
+                delay(1000)
+                waitCount++
+                Log.d("HomeActivity", "⏳ Waiting for GPS data... (${waitCount}s)")
+            }
+
+            if (currentGPS == null) {
+                Log.w("HomeActivity", "⚠️ GPS timeout after 30s, continuing without GPS")
+                return@LaunchedEffect
+            }
+
+            Log.d("HomeActivity", "✅ GPS available, starting periodic saves")
+
+            // Now start periodic saves
+            while (isRiding && currentGPS != null) {
+                delay(10000) // Save every 10 seconds
+                Log.d("HomeActivity", "💾 Attempting periodic save...")
+                saveSensorRecord()
             }
         }
     }
@@ -915,10 +971,29 @@ fun HomeScreen() {
         if (isRiding) {
             Log.d("HomeActivity", "=== STARTING RIDE SERVICES ===")
 
+            // Start GPS services first and wait for initial location
+            val lastKnownLocation = gpsHelper.getLastKnownLocation()
+            if (lastKnownLocation != null) {
+                currentGPS = lastKnownLocation
+                Log.d("HomeActivity", "📍 Using last known GPS: ${lastKnownLocation.latitude}, ${lastKnownLocation.longitude}")
+            }
+
+            // Start continuous GPS updates
             gpsHelper.startLocationUpdates { gpsData ->
                 currentGPS = gpsData
-                Log.d("HomeActivity", "📍 GPS: ${gpsData.latitude}, ${gpsData.longitude}")
+                Log.d("HomeActivity", "📍 GPS updated: ${gpsData.latitude}, ${gpsData.longitude}")
             }
+
+            // Request immediate GPS location (non-blocking)
+            gpsHelper.requestImmediateLocation { immediateGPS ->
+                if (immediateGPS != null) {
+                    currentGPS = immediateGPS
+                    Log.d("HomeActivity", "📍 Immediate GPS acquired: ${immediateGPS.latitude}, ${immediateGPS.longitude}")
+                }
+            }
+
+            // Give GPS a moment to initialize before starting MQTT
+            delay(2000)
 
             mqttHelper.connect(
                 onConnected = {
@@ -1004,6 +1079,7 @@ fun AlertsSection() {
 @Composable
 fun QuickActionsSection() {
     val context = LocalContext.current
+    val gpsHelper = remember { GPSHelper(context) }
 
     StatusCard(
         title = "Quick Actions",

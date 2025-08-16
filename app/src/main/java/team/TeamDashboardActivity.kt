@@ -154,16 +154,6 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
                         )
                     }
                 }
-
-                IconButton(
-                    onClick = { /* Refresh team data */ }
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Refresh,
-                        contentDescription = "Refresh",
-                        tint = colorResource(id = R.color.honeydew)
-                    )
-                }
             }
 
             if (isLoading) {
@@ -194,7 +184,6 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
                     ) {
                         StatColumn("Members", teamMembers.size.toString())
                         StatColumn("Active", teamMembers.count { it.status == "online" || it.status == "riding" }.toString())
-                        StatColumn("Avg Speed", "${teamMembers.filter { it.status == "riding" }.map { it.speed }.average().takeIf { !it.isNaN() }?.toInt() ?: 0} km/h")
                     }
                 }
 
@@ -300,16 +289,6 @@ fun TeamMemberCard(
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
                         color = colorResource(id = R.color.berkeley_blue)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Status Indicator
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(getStatusColor(member.status))
                     )
                 }
 
