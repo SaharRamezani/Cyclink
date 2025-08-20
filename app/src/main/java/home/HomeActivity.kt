@@ -1099,7 +1099,7 @@ fun AlertsSection() {
         icon = Icons.Filled.Warning
     ) {
         Column {
-            if (isLoading) {
+            if (isLoading && alerts.isEmpty()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1115,7 +1115,7 @@ fun AlertsSection() {
                 }
             } else if (alerts.isEmpty()) {
                 Text(
-                    text = "All systems normal",
+                    text = "No alerts at this time",
                     color = colorResource(id = R.color.berkeley_blue)
                 )
             } else {
@@ -1136,8 +1136,15 @@ fun AlertsSection() {
     // Start team health monitoring within LaunchedEffect
     LaunchedEffect(Unit) {
         startTeamHealthMonitoringWithContext(context) { newAlerts, loading ->
-            alerts = newAlerts
             isLoading = loading
+            // Add new alerts to existing ones instead of replacing them
+            if (newAlerts.isNotEmpty()) {
+                val currentTime = System.currentTimeMillis()
+                val alertsWithTimestamp = newAlerts.map { alert ->
+                    alert.copy(message = "${alert.message} (${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(currentTime))})")
+                }
+                alerts = alerts + alertsWithTimestamp
+            }
         }
     }
 }
@@ -1146,7 +1153,8 @@ fun AlertsSection() {
 data class AlertData(
     val message: String,
     val type: String,
-    val isGood: Boolean
+    val isGood: Boolean,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 private suspend fun getTeamUserIds(): List<String> = withContext(Dispatchers.IO) {
@@ -1193,16 +1201,6 @@ private suspend fun getUserDisplayNames(userIds: List<String>): Map<String, Stri
     }
 }
 
-private fun cleanAIResponse(response: String): String {
-    return response
-        .replace(Regex("\\*\\*([^*]+)\\*\\*"), "$1") // Remove **bold**
-        .replace(Regex("\\*([^*]+)\\*"), "$1") // Remove *italic*
-        .replace(Regex("__([^_]+)__"), "$1") // Remove __bold__
-        .replace(Regex("_([^_]+)_"), "$1") // Remove _italic_
-        .replace(Regex("`([^`]+)`"), "$1") // Remove `code`
-        .trim()
-}
-
 private suspend fun startTeamHealthMonitoringWithContext(
     context: Context,
     onAlertsUpdate: (List<AlertData>, Boolean) -> Unit
@@ -1211,22 +1209,20 @@ private suspend fun startTeamHealthMonitoringWithContext(
     val aiHelper = AIHelper(context)
     val userSensorData = mutableMapOf<String, MutableList<SensorRecord>>()
     var lastStatusWasPerfect = true
+    var lastAlertMessage = "" // Track last alert to avoid duplicates
 
     try {
         onAlertsUpdate(emptyList(), true) // Show loading
 
-        // Get team user IDs
         val teamUserIds = getTeamUserIds()
         if (teamUserIds.isEmpty()) {
             onAlertsUpdate(listOf(AlertData("No team members found", "info", true)), false)
             return@withContext
         }
 
-        // Get user display names
         val userDisplayNames = getUserDisplayNames(teamUserIds)
         Log.d("HomeActivity", "👥 User display names: $userDisplayNames")
 
-        // Subscribe to team MQTT topics
         subscribeToTeamMqttTopics(mqttHelper, teamUserIds) { userId: String, sensorData: SensorRecord ->
             userSensorData.getOrPut(userId) { mutableListOf() }.add(sensorData)
             if (userSensorData[userId]!!.size > 10) {
@@ -1243,63 +1239,64 @@ private suspend fun startTeamHealthMonitoringWithContext(
                     val latest = records.lastOrNull()
                     val userName = userDisplayNames[userId] ?: "Unknown User"
                     "User $userName: HR=${latest?.heartRate ?: "N/A"}, " +
-                            "Breathing=${latest?.breathFrequency ?: "N/A"}, " +
+                            "Breath=${latest?.breathFrequency ?: "N/A"}, " +
+                            "HRV=${latest?.hrv ?: "N/A"}, " +
                             "Intensity=${latest?.intensity ?: "N/A"}"
                 }
 
                 val prompt = """
                 Analyze this team cycling data and determine if anyone needs help:
                 $dataForAI
-
-                Respond with either:
+                
+                The data is gathered from multiple users in a cycling team.
+                
+                You must respond with ONLY one of these formats:
                 - "Everything is perfect and everyone is healthy" if all normal
-                - List specific issues like "User [Name] has dangerously high heart rate - may need immediate help"
-
+                - A single sentence describing the specific issue like "User [Name] has dangerously high heart rate - may need immediate help"
+                
                 Use the actual user names provided, not User IDs.
                 Focus on safety-critical issues only.
+                Do not provide explanations or additional context - just the direct assessment.
                 """.trimIndent()
 
                 val aiResponse = aiHelper.sendMessage(prompt)
                 aiResponse.onSuccess { response ->
                     Log.d("HomeActivity", "🧠 AI API raw response: $response")
 
-                    // Clean the response to remove Markdown formatting
-                    val cleanedResponse = cleanAIResponse(response)
-                    Log.d("HomeActivity", "🧠 AI cleaned response: $cleanedResponse")
+                    val cleanedResponse = parseAlertsFromResponse(response)
+                    val responseText = cleanedResponse.firstOrNull() ?: ""
 
-                    val isPerfect = cleanedResponse.contains("Everything is perfect", ignoreCase = true) ||
-                            cleanedResponse.contains("everyone is healthy", ignoreCase = true)
+                    // Only add new alert if it's different from the last one
+                    if (responseText != lastAlertMessage) {
+                        val isPerfect = responseText.contains("Everything is perfect") ||
+                                responseText.contains("everyone is healthy")
 
-                    if (isPerfect && !lastStatusWasPerfect) {
-                        // Status improved
-                        onAlertsUpdate(listOf(AlertData(cleanedResponse, "info", true)), false)
-                        lastStatusWasPerfect = true
-                    } else if (!isPerfect) {
-                        // There are issues
-                        val alertMessages = parseAlertsFromResponse(cleanedResponse)
-                        val alerts = alertMessages.map { AlertData(it, "danger", false) }
-                        onAlertsUpdate(alerts, false)
+                        if (!isPerfect) {
+                            // There are issues - add new alert
+                            val newAlerts = listOf(AlertData(responseText, "danger", false))
+                            onAlertsUpdate(newAlerts, false)
 
-                        // Send notification for critical issues
-                        if (cleanedResponse.contains("dangerously", ignoreCase = true) ||
-                            cleanedResponse.contains("immediate help", ignoreCase = true)) {
-                            sendDangerNotification(context, cleanedResponse)
+                            // Send notification for critical issues
+                            if (responseText.contains("dangerously") ||
+                                responseText.contains("immediate help")) {
+                                sendDangerNotification(context, responseText)
+                            }
                         }
-                        lastStatusWasPerfect = false
+
+                        lastAlertMessage = responseText
+                        lastStatusWasPerfect = isPerfect
                     }
                 }
 
                 aiResponse.onFailure { error ->
-                    Log.e("HomeActivity", "AI analysis failed: ${error.message}")
-                    onAlertsUpdate(listOf(AlertData("Health monitoring unavailable", "warning", false)), false)
+                    Log.e("HomeActivity", "❌ AI API error: ${error.message}")
                 }
             } else {
-                onAlertsUpdate(listOf(AlertData("No team data available", "info", true)), false)
+                Log.d("HomeActivity", "⏳ No sensor data available yet")
             }
         }
     } catch (e: Exception) {
-        Log.e("HomeActivity", "Team monitoring error: ${e.message}")
-        onAlertsUpdate(listOf(AlertData("Monitoring system error", "danger", false)), false)
+        Log.e("HomeActivity", "❌ Error in team health monitoring: ${e.message}")
     }
 }
 
@@ -1371,15 +1368,18 @@ private fun sendDangerNotification(context: Context, message: String) {
 }
 
 private fun parseAlertsFromResponse(response: String): List<String> {
-    return response.split("\n")
-        .filter { line ->
-            line.isNotBlank() &&
-                    !line.contains("perfect", ignoreCase = true) &&
-                    !line.contains("healthy", ignoreCase = true) &&
-                    !line.contains("analysis", ignoreCase = true)
-        }
-        .map { it.trim() }
-        .take(3) // Limit to 3 alerts max
+    // Clean and format the response as a single alert
+    val cleanResponse = response
+        .replace(Regex("\\*\\*([^*]+)\\*\\*"), "$1") // Remove **bold**
+        .replace(Regex("\\*([^*]+)\\*"), "$1") // Remove *italic*
+        .replace(Regex("__([^_]+)__"), "$1") // Remove __bold__
+        .replace(Regex("_([^_]+)_"), "$1") // Remove _italic_
+        .replace(Regex("`([^`]+)`"), "$1") // Remove `code`
+        .replace(Regex("#{1,6}\\s*"), "") // Remove markdown headers
+        .replace(Regex("^[-*+]\\s+", RegexOption.MULTILINE), "• ") // Convert list items to bullets
+        .trim()
+
+    return listOf(cleanResponse)
 }
 
 @Composable
