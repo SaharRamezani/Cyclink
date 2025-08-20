@@ -13,10 +13,14 @@ class MQTTHelper(private val context: Context) {
     private var mqttClient: MqttClient? = null
     private val brokerUrl = "tcp://192.168.103.151:1883"
     private val clientId = "CyclinkApp_${System.currentTimeMillis()}"
-    private val subscribeTopic = "sensor/howdy/data"
 
     companion object {
         private const val TAG = "MQTTHelper"
+    }
+
+    private fun getSubscribeTopic(): String {
+        val userId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "unknown"
+        return "sensor/howdy/$userId"
     }
 
     fun sendSensorDataToMqtt(sensorRecord: SensorRecord, userId: String) {
@@ -173,8 +177,7 @@ class MQTTHelper(private val context: Context) {
                 })
 
                 mqttClient?.connect(options)
-                mqttClient?.subscribe(subscribeTopic, 1)
-                Log.d(TAG, "✅ Connected to MQTT broker and subscribed to $subscribeTopic")
+                mqttClient?.subscribe(getSubscribeTopic(), 1)
 
                 withContext(Dispatchers.Main) {
                     onConnected()
