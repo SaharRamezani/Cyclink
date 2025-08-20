@@ -2,6 +2,7 @@ package com.example.cyclink.team
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -28,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cyclink.R
+import com.example.cyclink.helpers.MQTTHelper
+import com.example.cyclink.helpers.SensorRecord
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -44,7 +47,6 @@ class TeamDashboardActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TeamDashboardScreen(onBackPressed: () -> Unit) {
     val context = LocalContext.current
@@ -54,23 +56,45 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
     var teamMembers by remember { mutableStateOf<List<TeamMember>>(emptyList()) }
     var teamName by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
-    var teamId by remember { mutableStateOf("") }
 
-    // Load team data
+    // MQTT helper for real-time data
+    val mqttHelper = remember(context) { MQTTHelper(context) }
+
+    // Store real-time sensor data for each user
+    var userSensorData by remember { mutableStateOf<Map<String, SensorRecord>>(emptyMap()) }
+    var userDisplayNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    // Function to determine if user is online based on last data timestamp
+    fun isUserOnline(userId: String): String {
+        val lastData = userSensorData[userId]
+        return if (lastData != null) {
+            val timeDiff = System.currentTimeMillis() - lastData.timestamp
+            when {
+                timeDiff < 5 * 60 * 1000 -> "online" // Last 5 minutes
+                timeDiff < 15 * 60 * 1000 -> "riding" // Last 15 minutes
+                else -> "offline"
+            }
+        } else {
+            "offline"
+        }
+    }
+
+    // Load team data and subscribe to MQTT
     LaunchedEffect(Unit) {
         val user = auth.currentUser
         if (user != null) {
+            // Get team information
             db.collection("users")
                 .document(user.uid)
                 .get()
                 .addOnSuccessListener { userDoc ->
-                    val teamData = userDoc.get("currentTeam") as? Map<String, Any>
+                    val teamData = userDoc.get("currentTeam") as? Map<*, *>
                     if (teamData != null) {
-                        teamId = teamData["teamId"] as? String ?: ""
-                        teamName = teamData["teamName"] as? String ?: ""
+                        val teamId = teamData["teamId"] as? String ?: ""
+                        teamName = teamData["teamName"] as? String ?: "My Team"
 
-                        // Load team members
                         if (teamId.isNotEmpty()) {
+                            // Get team members
                             db.collection("teams")
                                 .document(teamId)
                                 .get()
@@ -78,33 +102,71 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
                                     val members = teamDoc.get("members") as? List<*> ?: emptyList<String>()
                                     val memberNames = teamDoc.get("memberNames") as? List<*> ?: emptyList<String>()
 
-                                    val memberList = mutableListOf<TeamMember>()
+                                    // Store display names
+                                    val namesMap = mutableMapOf<String, String>()
                                     members.forEachIndexed { index, memberId ->
                                         if (memberId is String && index < memberNames.size) {
                                             val memberName = memberNames[index] as? String ?: "Unknown"
-                                            memberList.add(
-                                                TeamMember(
-                                                    id = memberId,
-                                                    name = memberName,
-                                                    status = if (memberId == user.uid) "online" else listOf("online", "riding", "offline").random(),
-                                                    heartRate = (60..90).random(),
-                                                    speed = (0..25).random().toDouble(),
-                                                    alerts = if ((0..10).random() < 3) listOf("Low battery", "High heart rate").take((1..2).random()) else emptyList()
-                                                )
-                                            )
+                                            namesMap[memberId] = memberName
                                         }
                                     }
-                                    teamMembers = memberList
+                                    userDisplayNames = namesMap
+
+                                    // Subscribe to MQTT for each team member
+                                    members.forEach { memberId ->
+                                        if (memberId is String) {
+                                            subscribeToUserMqtt(mqttHelper, memberId) { sensorData ->
+                                                userSensorData = userSensorData + (memberId to sensorData)
+                                                Log.d("TeamDashboard", "📊 Updated data for $memberId: HR=${sensorData.heartRate}, Speed=${sensorData.gpsSpeed}")
+                                            }
+                                        }
+                                    }
+
                                     isLoading = false
                                 }
+                                .addOnFailureListener { exception ->
+                                    Log.e("TeamDashboard", "Error loading team: ${exception.message}")
+                                    isLoading = false
+                                }
+                        } else {
+                            isLoading = false
                         }
                     } else {
                         isLoading = false
                     }
                 }
+                .addOnFailureListener { exception ->
+                    Log.e("TeamDashboard", "Error loading user: ${exception.message}")
+                    isLoading = false
+                }
+        } else {
+            isLoading = false
         }
     }
 
+    // Update team members list when sensor data changes
+    LaunchedEffect(userSensorData, userDisplayNames) {
+        if (userDisplayNames.isNotEmpty()) {
+            val updatedMembers = userDisplayNames.map { (userId, displayName) ->
+                val sensorData = userSensorData[userId]
+                val status = isUserOnline(userId)
+
+                TeamMember(
+                    id = userId,
+                    name = displayName,
+                    status = status,
+                    heartRate = sensorData?.heartRate?.toInt() ?: 0,
+                    speed = sensorData?.gpsSpeed?.toDouble() ?: 0.0,
+                    lastSeen = sensorData?.timestamp ?: 0L,
+                    alerts = emptyList() // We can add alert logic later
+                )
+            }
+            teamMembers = updatedMembers
+            Log.d("TeamDashboard", "👥 Updated team members: ${teamMembers.size} members")
+        }
+    }
+
+    // Rest of the UI code remains the same...
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -118,17 +180,23 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
             )
     ) {
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
         ) {
             // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = onBackPressed
+                    onClick = {
+                        if (context is ComponentActivity) {
+                            context.finish()
+                        }
+                    }
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -166,7 +234,7 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
                     )
                 }
             } else {
-                // Team Stats Card
+                // Team Stats Card with real data
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -183,17 +251,20 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
                         StatColumn("Members", teamMembers.size.toString())
-                        StatColumn("Active", teamMembers.count { it.status == "online" || it.status == "riding" }.toString())
+                        StatColumn(
+                            "Online",
+                            teamMembers.count { it.status == "online" || it.status == "riding" }.toString()
+                        )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Members List
+                // Members List with real data
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     items(teamMembers) { member ->
                         TeamMemberCard(
@@ -209,7 +280,7 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
                                 val intent = Intent(context, MemberMapActivity::class.java).apply {
                                     putExtra("memberId", member.id)
                                     putExtra("memberName", member.name)
-                                    putExtra("userId", member.id) // For Firestore queries
+                                    putExtra("userId", member.id)
                                 }
                                 context.startActivity(intent)
                             }
@@ -219,6 +290,34 @@ fun TeamDashboardScreen(onBackPressed: () -> Unit) {
             }
         }
     }
+
+    // Cleanup MQTT connections when composable is disposed
+    DisposableEffect(Unit) {
+        onDispose {
+            mqttHelper.disconnect()
+        }
+    }
+}
+
+// Helper function to subscribe to a specific user's MQTT data
+private fun subscribeToUserMqtt(
+    mqttHelper: MQTTHelper,
+    userId: String,
+    onSensorData: (SensorRecord) -> Unit
+) {
+    mqttHelper.connectAndSubscribeToUser(
+        userId = userId,
+        onConnected = {
+            Log.d("TeamDashboard", "✅ Connected to MQTT for user: $userId")
+        },
+        onLocationUpdate = { sensorRecord ->
+            Log.d("TeamDashboard", "📍 Received sensor data for $userId: $sensorRecord")
+            onSensorData(sensorRecord)
+        },
+        onError = { error ->
+            Log.e("TeamDashboard", "❌ MQTT error for user $userId: $error")
+        }
+    )
 }
 
 @Composable
@@ -261,7 +360,7 @@ fun TeamMemberCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Profile Circle
+            // Profile Circle with status indicator
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -279,7 +378,7 @@ fun TeamMemberCard(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Member Info
+            // Member Info with real data
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically
@@ -290,6 +389,15 @@ fun TeamMemberCard(
                         fontWeight = FontWeight.Medium,
                         color = colorResource(id = R.color.berkeley_blue)
                     )
+
+                    // Online status indicator
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(getStatusColor(member.status))
+                    )
                 }
 
                 Text(
@@ -298,11 +406,44 @@ fun TeamMemberCard(
                     color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.6f)
                 )
 
+                // Show real sensor data if user is online/riding
                 if (member.status == "riding" || member.status == "online") {
+                    if (member.heartRate > 0 || member.speed > 0) {
+                        Text(
+                            text = buildString {
+                                if (member.heartRate > 0) {
+                                    append("♥ ${member.heartRate} bpm")
+                                }
+                                if (member.speed > 0) {
+                                    if (member.heartRate > 0) append(" • ")
+                                    append("${String.format("%.1f", member.speed)} km/h")
+                                }
+                            },
+                            fontSize = 12.sp,
+                            color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.8f)
+                        )
+                    } else {
+                        Text(
+                            text = "Waiting for sensor data...",
+                            fontSize = 11.sp,
+                            color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.5f)
+                        )
+                    }
+                }
+
+                // Show last seen for offline users
+                if (member.status == "offline" && member.lastSeen > 0) {
+                    val timeDiff = System.currentTimeMillis() - member.lastSeen
+                    val lastSeenText = when {
+                        timeDiff < 60 * 1000 -> "Just now"
+                        timeDiff < 60 * 60 * 1000 -> "${timeDiff / (60 * 1000)} min ago"
+                        timeDiff < 24 * 60 * 60 * 1000 -> "${timeDiff / (60 * 60 * 1000)} hr ago"
+                        else -> "${timeDiff / (24 * 60 * 60 * 1000)} days ago"
+                    }
                     Text(
-                        text = "♥ ${member.heartRate} bpm • ${member.speed.toInt()} km/h",
-                        fontSize = 12.sp,
-                        color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.8f)
+                        text = "Last seen: $lastSeenText",
+                        fontSize = 11.sp,
+                        color = colorResource(id = R.color.berkeley_blue).copy(alpha = 0.5f)
                     )
                 }
 
