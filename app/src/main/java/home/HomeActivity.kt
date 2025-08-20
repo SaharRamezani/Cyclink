@@ -7,6 +7,10 @@ import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
+import android.content.Context
+import kotlinx.coroutines.*
+import kotlinx.coroutines.tasks.await
+import com.example.cyclink.helpers.AIHelper
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.util.Log
@@ -63,6 +67,9 @@ class HomeActivity : ComponentActivity() {
             Log.e("HomeActivity", "❌ Location permissions denied!")
         }
     }
+    private val userSensorData = mutableMapOf<String, MutableList<SensorRecord>>()
+    private var lastStatusWasPerfect = true
+
 
     // Single onCreate method
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1062,18 +1069,244 @@ private fun calculateHRV(rrIntervals: List<Double>): Double {
 
 @Composable
 fun AlertsSection() {
+    var alerts by remember { mutableStateOf<List<AlertData>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
     StatusCard(
         title = "Alerts & Notifications",
         icon = Icons.Filled.Warning
     ) {
         Column {
-            AlertItem("All vitals normal", "info", true)
-            Spacer(modifier = Modifier.height(8.dp))
-            AlertItem("GPS connection stable", "success", true)
-            Spacer(modifier = Modifier.height(8.dp))
-            AlertItem("Team member needs assistance", "warning", false)
+            if (isLoading) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = colorResource(id = R.color.berkeley_blue)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Monitoring team health...",
+                        color = colorResource(id = R.color.berkeley_blue)
+                    )
+                }
+            } else if (alerts.isEmpty()) {
+                Text(
+                    text = "All systems normal",
+                    color = colorResource(id = R.color.berkeley_blue)
+                )
+            } else {
+                alerts.forEach { alert ->
+                    AlertItem(
+                        message = alert.message,
+                        type = alert.type,
+                        isGood = alert.isGood
+                    )
+                    if (alert != alerts.last()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
         }
     }
+
+    // Start team health monitoring within LaunchedEffect
+    LaunchedEffect(Unit) {
+        startTeamHealthMonitoringWithContext(context) { newAlerts, loading ->
+            alerts = newAlerts
+            isLoading = loading
+        }
+    }
+}
+
+// Data class for alerts
+data class AlertData(
+    val message: String,
+    val type: String,
+    val isGood: Boolean
+)
+
+private suspend fun getTeamUserIds(): List<String> = withContext(Dispatchers.IO) {
+    try {
+        val auth = FirebaseAuth.getInstance()
+        val db = FirebaseFirestore.getInstance()
+        val user = auth.currentUser ?: return@withContext emptyList()
+
+        val userDoc = db.collection("users").document(user.uid).get().await()
+        val teamData = userDoc.get("currentTeam") as? Map<*, *> ?: return@withContext emptyList()
+        val teamId = teamData["teamId"] as? String ?: return@withContext emptyList()
+
+        val teamDoc = db.collection("teams").document(teamId).get().await()
+        (teamDoc.get("members") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+    } catch (e: Exception) {
+        Log.e("HomeActivity", "Error getting team user IDs: ${e.message}")
+        emptyList()
+    }
+}
+
+private suspend fun startTeamHealthMonitoringWithContext(
+    context: Context,
+    onAlertsUpdate: (List<AlertData>, Boolean) -> Unit
+) = withContext(Dispatchers.IO) {
+    val mqttHelper = MQTTHelper(context)
+    val aiHelper = AIHelper()
+    val userSensorData = mutableMapOf<String, MutableList<SensorRecord>>()
+    var lastStatusWasPerfect = true
+
+    try {
+        onAlertsUpdate(emptyList(), true) // Show loading
+
+        // Get team user IDs
+        val teamUserIds = getTeamUserIds()
+        if (teamUserIds.isEmpty()) {
+            onAlertsUpdate(listOf(AlertData("No team members found", "info", true)), false)
+            return@withContext
+        }
+
+        // Subscribe to team MQTT topics
+        subscribeToTeamMqttTopics(mqttHelper, teamUserIds) { userId: String, sensorData: SensorRecord ->
+            // Store sensor data for each user
+            userSensorData.getOrPut(userId) { mutableListOf() }.add(sensorData)
+
+            // Keep only last 10 records per user
+            if (userSensorData[userId]!!.size > 10) {
+                userSensorData[userId]!!.removeAt(0)
+            }
+        }
+
+        // Monitor every minute
+        while (true) {
+            delay(60000) // 1 minute
+
+            if (userSensorData.isNotEmpty()) {
+                // Analyze data with AI
+                val dataForAI = userSensorData.entries.joinToString("\n") { (userId, records) ->
+                    val latestRecord = records.lastOrNull()
+                    "User $userId: HR=${latestRecord?.heartRate ?: "N/A"} bpm, " +
+                            "Breathing=${latestRecord?.breathFrequency ?: "N/A"} /min, " +
+                            "Intensity=${latestRecord?.intensity ?: "N/A"}"
+                }
+
+                val prompt = """
+                Analyze this team cycling data and determine if anyone needs help:
+                $dataForAI
+
+                Respond with either:
+                - "Everything is perfect and everyone is healthy" if all normal
+                - List specific issues like "User123 has dangerously high heart rate - may need immediate help"
+
+                Focus on safety-critical issues only.
+                """.trimIndent()
+
+                val aiResponse = aiHelper.sendMessage(prompt)
+                aiResponse.onSuccess { response ->
+                    val isPerfectStatus = response.contains("everything is perfect", ignoreCase = true)
+
+                    if (!isPerfectStatus) {
+                        val alertMessages = parseAlertsFromResponse(response)
+                        val alertData = alertMessages.map { AlertData(it, "warning", false) }
+                        onAlertsUpdate(alertData, false)
+
+                        // Send notification if status changed from perfect to problematic
+                        if (lastStatusWasPerfect) {
+                            sendDangerNotification(context, "Team health alert: ${alertMessages.firstOrNull() ?: "Check team status"}")
+                        }
+                        lastStatusWasPerfect = false
+                    } else {
+                        onAlertsUpdate(listOf(AlertData("All team members are healthy", "info", true)), false)
+                        lastStatusWasPerfect = true
+                    }
+                }.onFailure { error ->
+                    Log.e("HomeActivity", "AI analysis failed: ${error.message}")
+                    onAlertsUpdate(listOf(AlertData("Analysis error: ${error.message}", "error", false)), false)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("HomeActivity", "Team monitoring error: ${e.message}")
+        onAlertsUpdate(listOf(AlertData("Monitoring error: ${e.message}", "error", false)), false)
+    }
+}
+
+private suspend fun subscribeToTeamMqttTopics(
+    mqttHelper: MQTTHelper,
+    teamUserIds: List<String>,
+    onSensorData: (String, SensorRecord) -> Unit
+) = withContext(Dispatchers.IO) {
+    try {
+        teamUserIds.forEach { userId ->
+            mqttHelper.connectAndSubscribeToUser(
+                userId = userId,
+                onConnected = {
+                    Log.d("HomeActivity", "Connected to user $userId MQTT topic")
+                },
+                onLocationUpdate = { sensorRecord ->
+                    onSensorData(userId, sensorRecord)
+                },
+                onError = { error ->
+                    Log.e("HomeActivity", "Error subscribing to user $userId: $error")
+                }
+            )
+        }
+    } catch (e: Exception) {
+        Log.e("HomeActivity", "Error subscribing to team MQTT topics: ${e.message}")
+    }
+}
+
+private fun sendDangerNotification(context: Context, message: String) {
+    try {
+        // Check for notification permission on Android 13+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                Log.w("HomeActivity", "POST_NOTIFICATIONS permission not granted")
+                return
+            }
+        }
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+
+        // Create notification channel for Android 8.0+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                "team_alerts",
+                "Team Health Alerts",
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            )
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val notification = androidx.core.app.NotificationCompat.Builder(context, "team_alerts")
+            .setContentTitle("Team Health Alert")
+            .setContentText(message)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(System.currentTimeMillis().toInt(), notification)
+        Log.d("HomeActivity", "Notification sent: $message")
+
+    } catch (e: Exception) {
+        Log.e("HomeActivity", "Error sending notification: ${e.message}")
+    }
+}
+
+private fun parseAlertsFromResponse(response: String): List<String> {
+    return response.split("\n")
+        .filter { line ->
+            line.isNotBlank() &&
+                    !line.contains("perfect", ignoreCase = true) &&
+                    !line.contains("healthy", ignoreCase = true) &&
+                    !line.contains("analysis", ignoreCase = true)
+        }
+        .map { it.trim() }
+        .take(3) // Limit to 3 alerts max
 }
 
 @Composable
