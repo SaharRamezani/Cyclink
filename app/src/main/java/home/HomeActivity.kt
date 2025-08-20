@@ -67,6 +67,27 @@ class HomeActivity : ComponentActivity() {
             Log.e("HomeActivity", "❌ Location permissions denied!")
         }
     }
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            Log.d("HomeActivity", "Notification permission granted")
+        } else {
+            Log.w("HomeActivity", "Notification permission denied")
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
     private val userSensorData = mutableMapOf<String, MutableList<SensorRecord>>()
     private var lastStatusWasPerfect = true
 
@@ -614,7 +635,7 @@ fun TeamMemberItem(name: String, healthStatus: String) {
 @Composable
 fun AlertItem(message: String, type: String, isGood: Boolean) {
     Row(
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
         modifier = Modifier.fillMaxWidth()
     ) {
         Icon(
@@ -1146,12 +1167,48 @@ private suspend fun getTeamUserIds(): List<String> = withContext(Dispatchers.IO)
     }
 }
 
+private suspend fun getUserDisplayNames(userIds: List<String>): Map<String, String> = withContext(Dispatchers.IO) {
+    try {
+        val db = FirebaseFirestore.getInstance()
+        val userNames = mutableMapOf<String, String>()
+
+        userIds.forEach { userId ->
+            try {
+                val userDoc = db.collection("users").document(userId).get().await()
+                val displayName = userDoc.getString("displayName")
+                    ?: userDoc.getString("name")
+                    ?: userDoc.getString("email")?.substringBefore("@")
+                    ?: "Unknown User"
+                userNames[userId] = displayName
+            } catch (e: Exception) {
+                Log.e("HomeActivity", "Error getting name for user $userId: ${e.message}")
+                userNames[userId] = "Unknown User"
+            }
+        }
+
+        userNames
+    } catch (e: Exception) {
+        Log.e("HomeActivity", "Error getting user display names: ${e.message}")
+        emptyMap()
+    }
+}
+
+private fun cleanAIResponse(response: String): String {
+    return response
+        .replace(Regex("\\*\\*([^*]+)\\*\\*"), "$1") // Remove **bold**
+        .replace(Regex("\\*([^*]+)\\*"), "$1") // Remove *italic*
+        .replace(Regex("__([^_]+)__"), "$1") // Remove __bold__
+        .replace(Regex("_([^_]+)_"), "$1") // Remove _italic_
+        .replace(Regex("`([^`]+)`"), "$1") // Remove `code`
+        .trim()
+}
+
 private suspend fun startTeamHealthMonitoringWithContext(
     context: Context,
     onAlertsUpdate: (List<AlertData>, Boolean) -> Unit
 ) = withContext(Dispatchers.IO) {
     val mqttHelper = MQTTHelper(context)
-    val aiHelper = AIHelper()
+    val aiHelper = AIHelper(context)
     val userSensorData = mutableMapOf<String, MutableList<SensorRecord>>()
     var lastStatusWasPerfect = true
 
@@ -1165,12 +1222,13 @@ private suspend fun startTeamHealthMonitoringWithContext(
             return@withContext
         }
 
+        // Get user display names
+        val userDisplayNames = getUserDisplayNames(teamUserIds)
+        Log.d("HomeActivity", "👥 User display names: $userDisplayNames")
+
         // Subscribe to team MQTT topics
         subscribeToTeamMqttTopics(mqttHelper, teamUserIds) { userId: String, sensorData: SensorRecord ->
-            // Store sensor data for each user
             userSensorData.getOrPut(userId) { mutableListOf() }.add(sensorData)
-
-            // Keep only last 10 records per user
             if (userSensorData[userId]!!.size > 10) {
                 userSensorData[userId]!!.removeAt(0)
             }
@@ -1181,12 +1239,12 @@ private suspend fun startTeamHealthMonitoringWithContext(
             delay(60000) // 1 minute
 
             if (userSensorData.isNotEmpty()) {
-                // Analyze data with AI
                 val dataForAI = userSensorData.entries.joinToString("\n") { (userId, records) ->
-                    val latestRecord = records.lastOrNull()
-                    "User $userId: HR=${latestRecord?.heartRate ?: "N/A"} bpm, " +
-                            "Breathing=${latestRecord?.breathFrequency ?: "N/A"} /min, " +
-                            "Intensity=${latestRecord?.intensity ?: "N/A"}"
+                    val latest = records.lastOrNull()
+                    val userName = userDisplayNames[userId] ?: "Unknown User"
+                    "User $userName: HR=${latest?.heartRate ?: "N/A"}, " +
+                            "Breathing=${latest?.breathFrequency ?: "N/A"}, " +
+                            "Intensity=${latest?.intensity ?: "N/A"}"
                 }
 
                 val prompt = """
@@ -1195,38 +1253,53 @@ private suspend fun startTeamHealthMonitoringWithContext(
 
                 Respond with either:
                 - "Everything is perfect and everyone is healthy" if all normal
-                - List specific issues like "User123 has dangerously high heart rate - may need immediate help"
+                - List specific issues like "User [Name] has dangerously high heart rate - may need immediate help"
 
+                Use the actual user names provided, not User IDs.
                 Focus on safety-critical issues only.
                 """.trimIndent()
 
                 val aiResponse = aiHelper.sendMessage(prompt)
                 aiResponse.onSuccess { response ->
-                    val isPerfectStatus = response.contains("everything is perfect", ignoreCase = true)
+                    Log.d("HomeActivity", "🧠 AI API raw response: $response")
 
-                    if (!isPerfectStatus) {
-                        val alertMessages = parseAlertsFromResponse(response)
-                        val alertData = alertMessages.map { AlertData(it, "warning", false) }
-                        onAlertsUpdate(alertData, false)
+                    // Clean the response to remove Markdown formatting
+                    val cleanedResponse = cleanAIResponse(response)
+                    Log.d("HomeActivity", "🧠 AI cleaned response: $cleanedResponse")
 
-                        // Send notification if status changed from perfect to problematic
-                        if (lastStatusWasPerfect) {
-                            sendDangerNotification(context, "Team health alert: ${alertMessages.firstOrNull() ?: "Check team status"}")
+                    val isPerfect = cleanedResponse.contains("Everything is perfect", ignoreCase = true) ||
+                            cleanedResponse.contains("everyone is healthy", ignoreCase = true)
+
+                    if (isPerfect && !lastStatusWasPerfect) {
+                        // Status improved
+                        onAlertsUpdate(listOf(AlertData(cleanedResponse, "info", true)), false)
+                        lastStatusWasPerfect = true
+                    } else if (!isPerfect) {
+                        // There are issues
+                        val alertMessages = parseAlertsFromResponse(cleanedResponse)
+                        val alerts = alertMessages.map { AlertData(it, "danger", false) }
+                        onAlertsUpdate(alerts, false)
+
+                        // Send notification for critical issues
+                        if (cleanedResponse.contains("dangerously", ignoreCase = true) ||
+                            cleanedResponse.contains("immediate help", ignoreCase = true)) {
+                            sendDangerNotification(context, cleanedResponse)
                         }
                         lastStatusWasPerfect = false
-                    } else {
-                        onAlertsUpdate(listOf(AlertData("All team members are healthy", "info", true)), false)
-                        lastStatusWasPerfect = true
                     }
-                }.onFailure { error ->
-                    Log.e("HomeActivity", "AI analysis failed: ${error.message}")
-                    onAlertsUpdate(listOf(AlertData("Analysis error: ${error.message}", "error", false)), false)
                 }
+
+                aiResponse.onFailure { error ->
+                    Log.e("HomeActivity", "AI analysis failed: ${error.message}")
+                    onAlertsUpdate(listOf(AlertData("Health monitoring unavailable", "warning", false)), false)
+                }
+            } else {
+                onAlertsUpdate(listOf(AlertData("No team data available", "info", true)), false)
             }
         }
     } catch (e: Exception) {
         Log.e("HomeActivity", "Team monitoring error: ${e.message}")
-        onAlertsUpdate(listOf(AlertData("Monitoring error: ${e.message}", "error", false)), false)
+        onAlertsUpdate(listOf(AlertData("Monitoring system error", "danger", false)), false)
     }
 }
 
@@ -1257,6 +1330,8 @@ private suspend fun subscribeToTeamMqttTopics(
 
 private fun sendDangerNotification(context: Context, message: String) {
     try {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+
         // Check for notification permission on Android 13+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             if (androidx.core.content.ContextCompat.checkSelfPermission(
@@ -1264,12 +1339,10 @@ private fun sendDangerNotification(context: Context, message: String) {
                     android.Manifest.permission.POST_NOTIFICATIONS
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
-                Log.w("HomeActivity", "POST_NOTIFICATIONS permission not granted")
-                return
+                Log.w("HomeActivity", "POST_NOTIFICATIONS permission not granted, cannot send notification")
+                return // Exit early if permission not granted
             }
         }
-
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
 
         // Create notification channel for Android 8.0+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {

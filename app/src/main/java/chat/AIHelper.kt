@@ -6,11 +6,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import android.content.Context
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 
-class AIHelper {
+class AIHelper(private val context: Context) {
     private val apiKey = BuildConfig.AI_STUDIO_API_KEY.takeIf { it.isNotEmpty() }
         ?: "***REMOVED***"
 
@@ -30,9 +31,17 @@ class AIHelper {
                 return@withContext Result.failure(Exception("API key not configured"))
             }
 
+            // Add network connectivity check
+            if (!isNetworkAvailable()) {
+                return@withContext Result.failure(Exception("No network connection available"))
+            }
+
             val url = URL("$baseUrl?key=$apiKey")
             val connection = url.openConnection() as HttpURLConnection
 
+            // Add timeout settings for better error handling
+            connection.connectTimeout = 10000 // 10 seconds
+            connection.readTimeout = 30000 // 30 seconds
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
             connection.doOutput = true
@@ -71,9 +80,32 @@ class AIHelper {
                 Result.failure(Exception("API request failed with code $responseCode: $errorResponse"))
             }
 
+        } catch (e: java.net.UnknownHostException) {
+            Log.e("AIHelper", "Network error - unable to resolve host: ${e.message}")
+            Result.failure(Exception("Network connection error. Please check your internet connection."))
+        } catch (e: java.net.SocketTimeoutException) {
+            Log.e("AIHelper", "Request timeout: ${e.message}")
+            Result.failure(Exception("Request timed out. Please try again."))
+        } catch (e: java.io.IOException) {
+            Log.e("AIHelper", "Network I/O error: ${e.message}")
+            Result.failure(Exception("Network error. Please check your connection."))
         } catch (e: Exception) {
             Log.e("AIHelper", "Error sending message", e)
             Result.failure(e)
+        }
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        return try {
+            val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val network = connectivityManager.activeNetwork
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+            capabilities != null && (
+                    capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ||
+                            capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+                    )
+        } catch (e: Exception) {
+            false
         }
     }
 }

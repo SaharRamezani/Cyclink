@@ -1,17 +1,18 @@
 package com.example.cyclink.chat
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.cyclink.helpers.AIHelper
-import com.example.cyclink.helpers.ChatMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.util.*
+import com.example.cyclink.helpers.AIHelper
+import com.example.cyclink.helpers.ChatMessage
+import java.util.UUID
 
-class ChatViewModel : ViewModel() {
-    private val aiHelper = AIHelper()
+class ChatViewModel(application: Application) : AndroidViewModel(application) {
+    private val aiHelper = AIHelper(application.applicationContext)
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -19,36 +20,52 @@ class ChatViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    init {
+        // Add welcome message
+        addMessage(ChatMessage(
+            id = UUID.randomUUID().toString(),
+            text = "Hello! I'm your cycling assistant. How can I help you today?",
+            isFromUser = false
+        ))
+    }
+
     fun sendMessage(text: String) {
+        if (text.isBlank()) return
+
+        // Add user message
         val userMessage = ChatMessage(
             id = UUID.randomUUID().toString(),
             text = text,
             isFromUser = true
         )
+        addMessage(userMessage)
 
-        _messages.value = _messages.value + userMessage
+        // Get AI response
         _isLoading.value = true
-
         viewModelScope.launch {
-            aiHelper.sendMessage(text)
-                .onSuccess { response ->
+            aiHelper.sendMessage(text).fold(
+                onSuccess = { response ->
                     val aiMessage = ChatMessage(
                         id = UUID.randomUUID().toString(),
                         text = response,
                         isFromUser = false
                     )
-                    _messages.value = _messages.value + aiMessage
-                }
-                .onFailure { error ->
+                    addMessage(aiMessage)
+                },
+                onFailure = { error ->
                     val errorMessage = ChatMessage(
                         id = UUID.randomUUID().toString(),
-                        text = "Sorry, I'm having trouble connecting right now. Please try again later. Error: ${error.message}",
+                        text = "Sorry, I encountered an error: ${error.message}",
                         isFromUser = false
                     )
-                    _messages.value = _messages.value + errorMessage
+                    addMessage(errorMessage)
                 }
-
+            )
             _isLoading.value = false
         }
+    }
+
+    private fun addMessage(message: ChatMessage) {
+        _messages.value = _messages.value + message
     }
 }
