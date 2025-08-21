@@ -10,7 +10,7 @@ import android.hardware.SensorEventListener
 import android.content.Context
 import kotlinx.coroutines.*
 import kotlinx.coroutines.tasks.await
-import com.example.cyclink.helpers.AIHelper
+import com.example.cyclink.chat.AIHelper
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.util.Log
@@ -235,19 +235,65 @@ fun TeamDashboardSection() {
                                     val memberNames = teamDoc.get("memberNames") as? List<*> ?: emptyList<String>()
 
                                     val memberList = mutableListOf<TeamMember>()
-                                    members.take(3).forEachIndexed { index, memberId ->
+
+                                    // Get all members
+                                    members.forEachIndexed { index, memberId ->
                                         if (memberId is String && index < memberNames.size) {
                                             val memberName = memberNames[index] as? String ?: "Unknown"
-                                            memberList.add(
-                                                TeamMember(
-                                                    id = memberId,
-                                                    name = memberName,
-                                                    status = if (memberId == user.uid) "online" else listOf("online", "riding", "offline").random()
-                                                )
-                                            )
+
+                                            // Get real-time status from sensor data
+                                            db.collection("sensor_records")
+                                                .whereEqualTo("userId", memberId)
+                                                .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                                                .limit(1)
+                                                .get()
+                                                .addOnSuccessListener { sensorDocs ->
+                                                    val latestRecord = sensorDocs.documents.firstOrNull()
+                                                    val currentTime = System.currentTimeMillis()
+
+                                                    val status = when {
+                                                        latestRecord == null -> "offline"
+                                                        currentTime - (latestRecord.getLong("timestamp") ?: 0) < 60000 -> "online" // Active in last minute
+                                                        currentTime - (latestRecord.getLong("timestamp") ?: 0) < 300000 -> "riding" // Active in last 5 minutes
+                                                        else -> "offline"
+                                                    }
+
+                                                    val heartRate = latestRecord?.getDouble("heartRate")?.toInt() ?: 0
+                                                    val speed = latestRecord?.getDouble("gpsSpeed") ?: 0.0
+                                                    val lastSeen = latestRecord?.getLong("timestamp") ?: 0L
+
+                                                    val member = TeamMember(
+                                                        id = memberId,
+                                                        name = memberName,
+                                                        status = status,
+                                                        heartRate = heartRate,
+                                                        speed = speed,
+                                                        lastSeen = lastSeen
+                                                    )
+
+                                                    // Update the member in the list
+                                                    val existingIndex = memberList.indexOfFirst { it.id == memberId }
+                                                    if (existingIndex >= 0) {
+                                                        memberList[existingIndex] = member
+                                                    } else {
+                                                        memberList.add(member)
+                                                    }
+
+                                                    teamMembers = memberList.toList()
+                                                }
+                                                .addOnFailureListener {
+                                                    // Fallback if sensor data query fails
+                                                    memberList.add(
+                                                        TeamMember(
+                                                            id = memberId,
+                                                            name = memberName,
+                                                            status = "unknown"
+                                                        )
+                                                    )
+                                                    teamMembers = memberList.toList()
+                                                }
                                         }
                                     }
-                                    teamMembers = memberList
                                     isLoading = false
                                 }
                         } else {
@@ -256,6 +302,9 @@ fun TeamDashboardSection() {
                     } else {
                         isLoading = false
                     }
+                }
+                .addOnFailureListener {
+                    isLoading = false
                 }
         }
     }
@@ -887,6 +936,7 @@ fun HomeScreen(requestPermissions: () -> Unit = {}) {
     // MQTT sensor data handler with Firestore integration
     val onMQTTSensorDataReceived: (SensorDataMessage) -> Unit = { sensorData: SensorDataMessage ->
         Log.d("HomeActivity", "🔥 MQTT SENSOR DATA RECEIVED:")
+        Log.d("HomeActivity", "📊 User ID from MQTT: '${sensorData.userId}'")
         Log.d("HomeActivity", "📊 Type: '${sensorData.measureType}'")
         Log.d("HomeActivity", "📊 Values: ${sensorData.value.size} samples")
         Log.d("HomeActivity", "📊 User ID: ${sensorData.userId}")
@@ -999,40 +1049,59 @@ fun HomeScreen(requestPermissions: () -> Unit = {}) {
         if (isRiding) {
             Log.d("HomeActivity", "=== STARTING RIDE SERVICES ===")
 
-            // Start GPS services first and wait for initial location
-            val lastKnownLocation = gpsHelper.getLastKnownLocation()
-            if (lastKnownLocation != null) {
-                currentGPS = lastKnownLocation
-                Log.d("HomeActivity", "📍 Using last known GPS: ${lastKnownLocation.latitude}, ${lastKnownLocation.longitude}")
-            }
+            // Force immediate GPS check
+            val hasGps = gpsHelper.hasLocationPermissions()
+            Log.d("HomeActivity", "📍 Has GPS permissions: $hasGps")
 
-            // Start continuous GPS updates
+            // Start GPS immediately and wait longer for first fix
             gpsHelper.startLocationUpdates { gpsData ->
                 currentGPS = gpsData
-                Log.d("HomeActivity", "📍 GPS updated: ${gpsData.latitude}, ${gpsData.longitude}")
+                Log.d("HomeActivity", "📍 GPS RECEIVED: ${gpsData.latitude}, ${gpsData.longitude}, accuracy=${gpsData.accuracy}")
             }
 
-            // Request immediate GPS location (non-blocking)
+            // Get last known location immediately
+            val lastKnown = gpsHelper.getLastKnownLocation()
+            if (lastKnown != null) {
+                currentGPS = lastKnown
+                Log.d("HomeActivity", "📍 Using last known GPS: ${lastKnown.latitude}, ${lastKnown.longitude}")
+            } else {
+                Log.w("HomeActivity", "⚠️ No last known location available")
+            }
+
+            // Request immediate location with longer timeout
             gpsHelper.requestImmediateLocation { immediateGPS ->
                 if (immediateGPS != null) {
                     currentGPS = immediateGPS
                     Log.d("HomeActivity", "📍 Immediate GPS acquired: ${immediateGPS.latitude}, ${immediateGPS.longitude}")
+                } else {
+                    Log.w("HomeActivity", "⚠️ Immediate GPS request failed")
                 }
             }
 
-            // Give GPS a moment to initialize before starting MQTT
-            delay(2000)
+            // Wait longer for GPS before starting MQTT
+            var gpsWaitCount = 0
+            while (currentGPS == null && gpsWaitCount < 15) { // 15 seconds
+                delay(1000)
+                gpsWaitCount++
+                Log.d("HomeActivity", "⏳ Waiting for GPS... ${gpsWaitCount}s")
+            }
 
+            if (currentGPS == null) {
+                Log.e("HomeActivity", "❌ GPS failed to initialize after 15 seconds!")
+            } else {
+                Log.d("HomeActivity", "✅ GPS ready, starting MQTT...")
+            }
+
+            // Start MQTT regardless (but saves will be skipped without GPS)
             mqttHelper.connect(
                 onConnected = {
-                    Log.d("HomeActivity", "✅ MQTT connected and subscribed to sensor data")
+                    Log.d("HomeActivity", "✅ MQTT connected")
                 },
                 onError = { error ->
-                    Log.e("HomeActivity", "❌ MQTT connection failed: $error")
+                    Log.e("HomeActivity", "❌ MQTT error: $error")
                 },
                 onSensorDataReceived = onMQTTSensorDataReceived
             )
-
         } else {
             Log.d("HomeActivity", "=== STOPPING RIDE SERVICES ===")
             gpsHelper.stopLocationUpdates()
@@ -1235,26 +1304,36 @@ private suspend fun startTeamHealthMonitoringWithContext(
             delay(60000) // 1 minute
 
             if (userSensorData.isNotEmpty()) {
+                Log.d("HomeActivity", "🔍 Current userSensorData keys: ${userSensorData.keys}")
+                Log.d("HomeActivity", "🔍 Current userDisplayNames keys: ${userDisplayNames.keys}")
+
                 val dataForAI = userSensorData.entries.joinToString("\n") { (userId, records) ->
                     val latest = records.lastOrNull()
-                    val userName = userDisplayNames[userId] ?: "Unknown User"
-                    "User $userName: HR=${latest?.heartRate ?: "N/A"}, " +
+                    val userName = userDisplayNames[userId] ?: run {
+                        Log.w("HomeActivity", "⚠️ No display name found for userId: $userId")
+                        "Unknown User ($userId)"
+                    }
+                    Log.d("HomeActivity", "📊 Processing data for $userId -> $userName")
+
+                    "$userName: HR=${latest?.heartRate ?: "N/A"}, " +
                             "Breath=${latest?.breathFrequency ?: "N/A"}, " +
                             "HRV=${latest?.hrv ?: "N/A"}, " +
                             "Intensity=${latest?.intensity ?: "N/A"}"
                 }
 
+                Log.d("HomeActivity", "🧠 Sending to AI: $dataForAI")
+
                 val prompt = """
                 Analyze this team cycling data and determine if anyone needs help:
                 $dataForAI
                 
-                The data is gathered from multiple users in a cycling team.
+                The data shows real user names followed by their vital signs.
                 
                 You must respond with ONLY one of these formats:
                 - "Everything is perfect and everyone is healthy" if all normal
-                - A single sentence describing the specific issue like "User [Name] has dangerously high heart rate - may need immediate help"
+                - A single sentence describing the specific issue like "[Name] has dangerously high heart rate - may need immediate help"
                 
-                Use the actual user names provided, not User IDs.
+                Use the exact user names provided before the colon.
                 Focus on safety-critical issues only.
                 Do not provide explanations or additional context - just the direct assessment.
                 """.trimIndent()
@@ -1310,18 +1389,20 @@ private suspend fun subscribeToTeamMqttTopics(
             mqttHelper.connectAndSubscribeToUser(
                 userId = userId,
                 onConnected = {
-                    Log.d("HomeActivity", "Connected to user $userId MQTT topic")
+                    Log.d("HomeActivity", "✅ Connected to user $userId MQTT topic")
                 },
                 onLocationUpdate = { sensorRecord ->
+                    // Ensure we're using the correct userId as the key
+                    Log.d("HomeActivity", "📊 Received sensor data for user: $userId")
                     onSensorData(userId, sensorRecord)
                 },
                 onError = { error ->
-                    Log.e("HomeActivity", "Error subscribing to user $userId: $error")
+                    Log.e("HomeActivity", "❌ Error subscribing to user $userId: $error")
                 }
             )
         }
     } catch (e: Exception) {
-        Log.e("HomeActivity", "Error subscribing to team MQTT topics: ${e.message}")
+        Log.e("HomeActivity", "❌ Error subscribing to team MQTT topics: ${e.message}")
     }
 }
 

@@ -1,4 +1,4 @@
-package com.example.cyclink.helpers
+package com.example.cyclink.chat
 
 import android.util.Log
 import com.example.cyclink.BuildConfig
@@ -13,7 +13,7 @@ import java.net.URL
 
 class AIHelper(private val context: Context) {
     private val apiKey = BuildConfig.AI_STUDIO_API_KEY.takeIf { it.isNotEmpty() }
-        ?: "***REMOVED***"
+        ?: ""
 
     private val baseUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 

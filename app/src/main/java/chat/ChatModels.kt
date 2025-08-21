@@ -1,4 +1,4 @@
-package com.example.cyclink.helpers
+package com.example.cyclink.chat
 
 import kotlinx.serialization.Serializable
 

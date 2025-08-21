@@ -17,12 +17,9 @@ class GPSHelper(private val context: Context) {
 
     companion object {
         private const val TAG = "GPSHelper"
-        private const val MIN_TIME_BETWEEN_UPDATES = 1000L // 1 second (more frequent)
-        private const val MIN_DISTANCE_CHANGE = 1.0f // 1 meter (more sensitive)
     }
 
-    // Add the missing hasLocationPermissions function
-    private fun hasLocationPermissions(): Boolean {
+    fun hasLocationPermissions(): Boolean {
         return ActivityCompat.checkSelfPermission(
             context,
             Manifest.permission.ACCESS_FINE_LOCATION
@@ -70,15 +67,29 @@ class GPSHelper(private val context: Context) {
 
     fun startLocationUpdates(onLocationUpdate: (GPSData) -> Unit) {
         if (!hasLocationPermissions()) {
-            Log.w(TAG, "Location permissions not granted")
+            Log.w(TAG, "❌ Location permissions not granted")
             return
         }
 
+        Log.d(TAG, "🔍 Starting GPS location updates...")
         this.onLocationUpdate = onLocationUpdate
         locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
+        // Check if location services are enabled
+        val isGpsEnabled = locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) ?: false
+        val isNetworkEnabled = locationManager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ?: false
+
+        Log.d(TAG, "📍 GPS Provider enabled: $isGpsEnabled")
+        Log.d(TAG, "📍 Network Provider enabled: $isNetworkEnabled")
+
+        if (!isGpsEnabled && !isNetworkEnabled) {
+            Log.e(TAG, "❌ No location providers are enabled!")
+            return
+        }
+
         locationListener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
+                Log.d(TAG, "✅ GPS location received: ${location.latitude}, ${location.longitude}")
                 val gpsData = GPSData(
                     latitude = location.latitude,
                     longitude = location.longitude,
@@ -91,35 +102,41 @@ class GPSHelper(private val context: Context) {
                 onLocationUpdate(gpsData)
             }
 
-            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-            override fun onProviderEnabled(provider: String) {}
-            override fun onProviderDisabled(provider: String) {}
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
+                Log.d(TAG, "📍 Provider $provider status changed: $status")
+            }
+            override fun onProviderEnabled(provider: String) {
+                Log.d(TAG, "✅ Provider $provider enabled")
+            }
+            override fun onProviderDisabled(provider: String) {
+                Log.w(TAG, "❌ Provider $provider disabled")
+            }
         }
 
         try {
-            // Try GPS provider first
-            if (locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true) {
+            // Try GPS provider first with more aggressive settings
+            if (isGpsEnabled) {
                 locationManager?.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
-                    MIN_TIME_BETWEEN_UPDATES,
-                    MIN_DISTANCE_CHANGE,
+                    500L, // More frequent updates
+                    0.5f, // More sensitive
                     locationListener!!
                 )
-                Log.d(TAG, "GPS location updates started")
+                Log.d(TAG, "🛰️ GPS updates requested")
             }
 
-            // Also use network provider as backup
-            if (locationManager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true) {
+            // Network provider as backup
+            if (isNetworkEnabled) {
                 locationManager?.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
-                    MIN_TIME_BETWEEN_UPDATES,
-                    MIN_DISTANCE_CHANGE,
+                    1000L,
+                    1.0f,
                     locationListener!!
                 )
-                Log.d(TAG, "Network location updates started")
+                Log.d(TAG, "🌐 Network updates requested")
             }
         } catch (e: SecurityException) {
-            Log.e(TAG, "Security exception when requesting location updates", e)
+            Log.e(TAG, "❌ Security exception: ${e.message}")
         }
     }
 
@@ -163,10 +180,6 @@ class GPSHelper(private val context: Context) {
                     callback(gpsData)
                     locationManager.removeUpdates(this)
                 }
-
-                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-                override fun onProviderEnabled(provider: String) {}
-                override fun onProviderDisabled(provider: String) {}
             }
 
             // Request single update from both providers

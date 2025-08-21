@@ -6,6 +6,6 @@ import kotlinx.serialization.Serializable
 data class SensorDataMessage(
     val date: Long,
     val value: List<Double>,
-    val userId: Int,
+    val userId: String,
     val measureType: String
 )

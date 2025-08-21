@@ -7,8 +7,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import com.example.cyclink.helpers.AIHelper
-import com.example.cyclink.helpers.ChatMessage
+import com.example.cyclink.chat.AIHelper
+import com.example.cyclink.chat.ChatMessage
 import java.util.UUID
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {

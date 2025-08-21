@@ -233,7 +233,7 @@ fun WelcomeMessage() {
 }
 
 @Composable
-fun ChatMessageItem(message: com.example.cyclink.helpers.ChatMessage) {
+fun ChatMessageItem(message: com.example.cyclink.chat.ChatMessage) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     Row(

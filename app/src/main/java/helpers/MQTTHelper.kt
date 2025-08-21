@@ -18,19 +18,18 @@ class MQTTHelper(private val context: Context) {
         private const val TAG = "MQTTHelper"
     }
 
-    private fun getUserTopic(userId: String): String {
-        return "sensorData/$userId"
+    private fun getPersonalSensorTopic(userId: String): String {
+        return "sensor/howdy/$userId"  // For receiving personal sensor data
     }
 
-    private fun getSubscribeTopic(): String {
-        val userId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "unknown"
-        return "sensor/howdy/$userId"
+    private fun getTeamDataTopic(userId: String): String {
+        return "sensorData/$userId"    // For sending/receiving team location data
     }
 
     fun sendSensorDataToMqtt(sensorRecord: SensorRecord, userId: String) {
         try {
             val sensorMessage = Json.encodeToString(sensorRecord.copy(userId = userId))
-            val userTopic = getUserTopic(userId)
+            val userTopic = getTeamDataTopic(userId)
 
             publishMessage(userTopic, sensorMessage) { success ->
                 if (success) {
@@ -51,7 +50,7 @@ class MQTTHelper(private val context: Context) {
         onError: (String) -> Unit
     ) {
         try {
-            val userTopic = getUserTopic(userId)
+            val userTopic = getTeamDataTopic(userId)
             connect(
                 onConnected = {
                     subscribe(userTopic) { topic, message ->
@@ -162,7 +161,7 @@ class MQTTHelper(private val context: Context) {
                             val sensorData = SensorDataMessage(
                                 measureType = json.optString("measureType", ""),
                                 value = parseDoubleArray(json.optJSONArray("value")),
-                                userId = json.optInt("userId", 0), // Changed from optString to optInt
+                                userId = json.getString("userId"),
                                 date = json.optLong("date", System.currentTimeMillis()) // Changed from optString to optLong
                             )
                             onSensorDataReceived(sensorData)
@@ -179,8 +178,10 @@ class MQTTHelper(private val context: Context) {
 
             mqttClient?.connect(options)
 
-            // Subscribe to personal sensor topic
-            val personalTopic = getSubscribeTopic()
+            // Subscribe to personal sensor topic using the correct format
+            val personalTopic = getPersonalSensorTopic(
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "unknown"
+            )
             mqttClient?.subscribe(personalTopic)
 
             Log.d(TAG, "✅ Connected to MQTT broker and subscribed to $personalTopic")

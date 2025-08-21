@@ -1,5 +1,6 @@
 package com.example.cyclink.team
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -15,7 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,16 +39,14 @@ class TeamDashboardActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                TeamDashboardScreen(
-                    onBackPressed = { finish() }
-                )
+                TeamDashboardScreen()
             }
         }
     }
 }
 
 @Composable
-fun TeamDashboardScreen(onBackPressed: () -> Unit) {
+fun TeamDashboardScreen() {
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
@@ -339,6 +337,7 @@ fun StatColumn(label: String, value: String) {
     }
 }
 
+@SuppressLint("DefaultLocale")
 @Composable
 fun TeamMemberCard(
     member: TeamMember,
