@@ -1,5 +1,6 @@
 package com.example.cyclink.team
 
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
@@ -243,28 +244,38 @@ private fun createTeam(
     onFailure: () -> Unit
 ) {
     val user = auth.currentUser
+    Log.d("CreateTeam", "Current user: ${user?.uid}, email: ${user?.email}")
+
     if (user == null) {
         Toast.makeText(context, "User not authenticated. Please sign in first.", Toast.LENGTH_LONG).show()
         onFailure()
         return
     }
 
-    // Debug logging
-    println("Creating team: $teamName for user: ${user.uid}")
-
     val teamId = db.collection("teams").document().id
     val teamCode = generateTeamCode()
 
-    println("Generated team ID: $teamId, code: $teamCode")
+    // Get user's display name, email, and ensure user profile exists
+    val userDisplayName = user.displayName ?: user.email?.substringBefore("@") ?: "Unknown"
+    val userEmail = user.email ?: ""
+
+    // First, ensure the user's profile exists in Firestore
+    val userProfileData = hashMapOf(
+        "uid" to user.uid,
+        "displayName" to userDisplayName,
+        "email" to userEmail,
+        "profileUpdatedAt" to System.currentTimeMillis()
+    )
 
     val teamData = hashMapOf(
         "teamName" to teamName,
         "teamDescription" to teamDescription,
         "teamCode" to teamCode,
         "createdBy" to user.uid,
-        "createdByName" to (user.displayName ?: "Unknown"),
+        "createdByName" to userDisplayName,
         "members" to listOf(user.uid),
-        "memberNames" to listOf(user.displayName ?: "Unknown"),
+        "memberNames" to listOf(userDisplayName),
+        "memberEmails" to listOf(userEmail), // Add emails array
         "maxMembers" to maxMembers,
         "createdAt" to System.currentTimeMillis()
     )
@@ -276,31 +287,44 @@ private fun createTeam(
         "joinedAt" to System.currentTimeMillis()
     )
 
-    // Save team data
-    db.collection("teams").document(teamId).set(teamData)
+    // Save user profile first, then team data
+    db.collection("users").document(user.uid)
+        .set(userProfileData, com.google.firebase.firestore.SetOptions.merge())
         .addOnSuccessListener {
-            println("Team document created successfully")
-            // Update user's team info
-            db.collection("users").document(user.uid)
-                .set(mapOf("currentTeam" to userTeamData), com.google.firebase.firestore.SetOptions.merge())
+            println("User profile saved/updated successfully")
+
+            // Now save team data
+            db.collection("teams").document(teamId).set(teamData)
                 .addOnSuccessListener {
-                    println("User document updated successfully")
-                    Toast.makeText(
-                        context,
-                        "Team created successfully! Team code: $teamCode",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    onSuccess()
+                    println("Team document created successfully")
+
+                    // Update user's team info
+                    db.collection("users").document(user.uid)
+                        .set(mapOf("currentTeam" to userTeamData), com.google.firebase.firestore.SetOptions.merge())
+                        .addOnSuccessListener {
+                            println("User team data updated successfully")
+                            Toast.makeText(
+                                context,
+                                "Team created successfully! Team code: $teamCode",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onSuccess()
+                        }
+                        .addOnFailureListener { exception ->
+                            println("Failed to update user team data: ${exception.message}")
+                            Toast.makeText(context, "Failed to update user team data: ${exception.message}", Toast.LENGTH_SHORT).show()
+                            onFailure()
+                        }
                 }
                 .addOnFailureListener { exception ->
-                    println("Failed to update user document: ${exception.message}")
-                    Toast.makeText(context, "Failed to update user data: ${exception.message}", Toast.LENGTH_SHORT).show()
+                    println("Failed to create team document: ${exception.message}")
+                    Toast.makeText(context, "Failed to create team: ${exception.message}", Toast.LENGTH_SHORT).show()
                     onFailure()
                 }
         }
         .addOnFailureListener { exception ->
-            println("Failed to create team document: ${exception.message}")
-            Toast.makeText(context, "Failed to create team: ${exception.message}", Toast.LENGTH_SHORT).show()
+            println("Failed to save user profile: ${exception.message}")
+            Toast.makeText(context, "Failed to save user profile: ${exception.message}", Toast.LENGTH_SHORT).show()
             onFailure()
         }
 }

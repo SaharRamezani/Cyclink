@@ -30,4 +30,31 @@ data class SensorRecord(
     val gpsAccuracy: Float? = null,
     val gpsSpeed: Float? = null,
     val gpsBearing: Float? = null
-)
+) {
+    // No-argument constructor for Firestore
+    constructor() : this(
+        timestamp = 0L,
+        userId = "",
+        sessionId = "",
+        heartRate = null,
+        breathFrequency = null,
+        hrv = null,
+        intensity = null,
+        accelerationX = null,
+        accelerationY = null,
+        accelerationZ = null,
+        ecg = null,
+        respiration = null,
+        r2rIntervals = null,
+        phoneSpeed = null,
+        phoneAccelerationX = null,
+        phoneAccelerationY = null,
+        phoneAccelerationZ = null,
+        latitude = 0.0,
+        longitude = 0.0,
+        altitude = null,
+        gpsAccuracy = null,
+        gpsSpeed = null,
+        gpsBearing = null
+    )
+}

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
+import androidx.core.app.NotificationCompat
 import android.hardware.SensorEventListener
 import android.content.Context
 import kotlinx.coroutines.*
@@ -1210,7 +1211,9 @@ fun AlertsSection() {
             if (newAlerts.isNotEmpty()) {
                 val currentTime = System.currentTimeMillis()
                 val alertsWithTimestamp = newAlerts.map { alert ->
-                    alert.copy(message = "${alert.message} (${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(currentTime))})")
+                    // Remove any newlines from the message and add timestamp on same line
+                    val cleanMessage = alert.message.replace("\n", " ").trim()
+                    alert.copy(message = "$cleanMessage (${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(currentTime))})")
                 }
                 alerts = alerts + alertsWithTimestamp
             }
@@ -1270,18 +1273,69 @@ private suspend fun getUserDisplayNames(userIds: List<String>): Map<String, Stri
     }
 }
 
+private fun buildFormattedSensorData(
+    userSensorData: Map<String, MutableList<SensorRecord>>,
+    userDisplayNames: Map<String, String>
+): String {
+    val sb = StringBuilder()
+
+    userSensorData.forEach { (userId, records) ->
+        val displayName = userDisplayNames[userId] ?: "Unknown User"
+        val latestRecord = records.firstOrNull()
+
+        if (latestRecord != null) {
+            val timeSinceLastData = System.currentTimeMillis() - latestRecord.timestamp
+            val minutesAgo = timeSinceLastData / 60000
+
+            sb.append("$displayName: ")
+
+            // Add vital signs if available
+            latestRecord.heartRate?.let { hr ->
+                sb.append("Heart Rate: ${hr.toInt()} bpm, ")
+            }
+
+            latestRecord.breathFrequency?.let { breath ->
+                sb.append("Breathing: ${breath.toInt()}/min, ")
+            }
+
+            latestRecord.gpsSpeed?.let { speed ->
+                sb.append("Speed: ${"%.1f".format(speed)} km/h, ")
+            }
+
+            latestRecord.intensity?.let { intensity ->
+                sb.append("Activity Level: ${"%.1f".format(intensity)}, ")
+            }
+
+            // Add time since last data
+            when {
+                minutesAgo < 1 -> sb.append("Data: Just now")
+                minutesAgo < 5 -> sb.append("Data: ${minutesAgo}min ago")
+                minutesAgo < 10 -> sb.append("Data: ${minutesAgo}min ago (Getting old)")
+                else -> sb.append("Data: ${minutesAgo}min ago (STALE - Possible emergency)")
+            }
+
+            sb.append("\n")
+        } else {
+            sb.append("$displayName: No recent data available\n")
+        }
+    }
+
+    return sb.toString().trim()
+}
+
 private suspend fun startTeamHealthMonitoringWithContext(
     context: Context,
     onAlertsUpdate: (List<AlertData>, Boolean) -> Unit
 ) = withContext(Dispatchers.IO) {
-    val mqttHelper = MQTTHelper(context)
     val aiHelper = AIHelper(context)
     val userSensorData = mutableMapOf<String, MutableList<SensorRecord>>()
-    var lastStatusWasPerfect = true
-    var lastAlertMessage = "" // Track last alert to avoid duplicates
+    val userDisplayNames = mutableMapOf<String, String>()
+    val listeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
+    var lastAlertMessage = ""
+    var consecutiveFailures = 0
 
     try {
-        onAlertsUpdate(emptyList(), true) // Show loading
+        onAlertsUpdate(emptyList(), true)
 
         val teamUserIds = getTeamUserIds()
         if (teamUserIds.isEmpty()) {
@@ -1289,120 +1343,146 @@ private suspend fun startTeamHealthMonitoringWithContext(
             return@withContext
         }
 
-        val userDisplayNames = getUserDisplayNames(teamUserIds)
-        Log.d("HomeActivity", "👥 User display names: $userDisplayNames")
+        // Get display names for all team members
+        val displayNamesMap = getUserDisplayNames(teamUserIds)
+        userDisplayNames.putAll(displayNamesMap)
 
-        subscribeToTeamMqttTopics(mqttHelper, teamUserIds) { userId: String, sensorData: SensorRecord ->
-            userSensorData.getOrPut(userId) { mutableListOf() }.add(sensorData)
-            if (userSensorData[userId]!!.size > 10) {
-                userSensorData[userId]!!.removeAt(0)
-            }
+        Log.d("HomeActivity", "🔍 Starting monitoring for ${teamUserIds.size} team members: ${displayNamesMap.values}")
+
+        val db = FirebaseFirestore.getInstance()
+        teamUserIds.forEach { userId ->
+            val listener = db.collection("sensor_records")
+                .whereEqualTo("userId", userId)
+                .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(10)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e("HomeActivity", "Firestore listener error for $userId: ${error.message}")
+                        return@addSnapshotListener
+                    }
+
+                    snapshot?.documents?.forEach { doc ->
+                        try {
+                            val sensorRecord = doc.toObject(SensorRecord::class.java)
+                            if (sensorRecord != null) {
+                                val currentTime = System.currentTimeMillis()
+                                if (currentTime - sensorRecord.timestamp < 300000) { // Last 5 minutes
+                                    if (!userSensorData.containsKey(userId)) {
+                                        userSensorData[userId] = mutableListOf()
+                                    }
+                                    userSensorData[userId]?.add(0, sensorRecord)
+                                    if (userSensorData[userId]?.size ?: 0 > 5) {
+                                        userSensorData[userId] = userSensorData[userId]?.take(5)?.toMutableList() ?: mutableListOf()
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("HomeActivity", "Error parsing sensor record: ${e.message}")
+                        }
+                    }
+                }
+
+            listeners.add(listener)
         }
 
         // Monitor every minute
         while (true) {
-            delay(60000) // 1 minute
+            delay(60000)
 
             if (userSensorData.isNotEmpty()) {
-                Log.d("HomeActivity", "🔍 Current userSensorData keys: ${userSensorData.keys}")
-                Log.d("HomeActivity", "🔍 Current userDisplayNames keys: ${userDisplayNames.keys}")
+                try {
+                    // Create formatted data with display names
+                    val formattedData = buildFormattedSensorData(userSensorData, userDisplayNames)
 
-                val dataForAI = userSensorData.entries.joinToString("\n") { (userId, records) ->
-                    val latest = records.lastOrNull()
-                    val userName = userDisplayNames[userId] ?: run {
-                        Log.w("HomeActivity", "⚠️ No display name found for userId: $userId")
-                        "Unknown User ($userId)"
-                    }
-                    Log.d("HomeActivity", "📊 Processing data for $userId -> $userName")
+                    val prompt = """
+                    Analyze this team cycling data and determine if anyone needs help:
+                    
+                    $formattedData
+                    
+                    The data shows team members with their latest vital signs and sensor readings.
+                    
+                    You must respond with ONLY one of these formats:
+                    - "Everything is perfect and everyone is healthy" if all measurements are normal
+                    - A single sentence describing the specific issue like "[Name] has dangerously high heart rate - may need immediate help"
+                    
+                    Focus on safety-critical issues only:
+                    - Heart rate above 180 bpm or below 50 bpm while riding
+                    - Breathing frequency above 40/min or below 10/min
+                    - No sensor data for over 10 minutes (potential emergency)
+                    
+                    Use the exact names provided. Do not provide explanations - just the direct assessment.
+                    """.trimIndent()
 
-                    "$userName: HR=${latest?.heartRate ?: "N/A"}, " +
-                            "Breath=${latest?.breathFrequency ?: "N/A"}, " +
-                            "HRV=${latest?.hrv ?: "N/A"}, " +
-                            "Intensity=${latest?.intensity ?: "N/A"}"
-                }
+                    val result = aiHelper.sendMessage(prompt)
+                    result.fold(
+                        onSuccess = { response ->
+                            Log.d("HomeActivity", "🤖 AI Response: $response")
 
-                Log.d("HomeActivity", "🧠 Sending to AI: $dataForAI")
+                            // Add the emergency detection logic here
+                            when {
+                                response.contains("immediate help", ignoreCase = true) ||
+                                        response.contains("emergency", ignoreCase = true) ||
+                                        response.contains("critical", ignoreCase = true) ||
+                                        response.contains("danger", ignoreCase = true) ||
+                                        response.contains("urgent medical", ignoreCase = true) ||
+                                        response.contains("dangerously high", ignoreCase = true) ||
+                                        response.contains("may need immediate help", ignoreCase = true) -> {
 
-                val prompt = """
-                Analyze this team cycling data and determine if anyone needs help:
-                $dataForAI
-                
-                The data shows real user names followed by their vital signs.
-                
-                You must respond with ONLY one of these formats:
-                - "Everything is perfect and everyone is healthy" if all normal
-                - A single sentence describing the specific issue like "[Name] has dangerously high heart rate - may need immediate help"
-                
-                Use the exact user names provided before the colon.
-                Focus on safety-critical issues only.
-                Do not provide explanations or additional context - just the direct assessment.
-                """.trimIndent()
+                                    Log.e("HomeActivity", "🚨 EMERGENCY DETECTED!")
 
-                val aiResponse = aiHelper.sendMessage(prompt)
-                aiResponse.onSuccess { response ->
-                    Log.d("HomeActivity", "🧠 AI API raw response: $response")
+                                    // Send the emergency notification
+                                    sendDangerNotification(context, response)
 
-                    val cleanedResponse = parseAlertsFromResponse(response)
-                    val responseText = cleanedResponse.firstOrNull() ?: ""
+                                    // Also update alerts
+                                    onAlertsUpdate(listOf(AlertData(response, "emergency", false)), false)
+                                    lastAlertMessage = response
+                                }
 
-                    // Only add new alert if it's different from the last one
-                    if (responseText != lastAlertMessage) {
-                        val isPerfect = responseText.contains("Everything is perfect") ||
-                                responseText.contains("everyone is healthy")
+                                response.contains("perfect", ignoreCase = true) ||
+                                        response.contains("healthy", ignoreCase = true) ||
+                                        response.contains("Everything is perfect", ignoreCase = true) -> {
+                                    Log.d("HomeActivity", "✅ Team health normal")
 
-                        if (!isPerfect) {
-                            // There are issues - add new alert
-                            val newAlerts = listOf(AlertData(responseText, "danger", false))
-                            onAlertsUpdate(newAlerts, false)
+                                    if (lastAlertMessage.isNotEmpty() && !lastAlertMessage.contains("perfect", ignoreCase = true)) {
+                                        // Clear previous alerts when everything becomes normal
+                                        onAlertsUpdate(listOf(AlertData("All clear - team health is now normal", "info", true)), false)
+                                    }
+                                    lastAlertMessage = response
+                                }
 
-                            // Send notification for critical issues
-                            if (responseText.contains("dangerously") ||
-                                responseText.contains("immediate help")) {
-                                sendDangerNotification(context, responseText)
+                                else -> {
+                                    // Handle other health warnings (non-emergency)
+                                    if (response != lastAlertMessage) {
+                                        val alerts = parseAlertsFromResponse(response)
+                                        val alertData = alerts.map {
+                                            AlertData(it, "health", false)
+                                        }
+                                        onAlertsUpdate(alertData, false)
+                                        lastAlertMessage = response
+                                    }
+                                }
+                            }
+                            consecutiveFailures = 0
+                        },
+                        onFailure = { error ->
+                            consecutiveFailures++
+                            if (consecutiveFailures <= 3) {
+                                Log.e("HomeActivity", "AI analysis failed (attempt $consecutiveFailures): ${error.message}")
+                                onAlertsUpdate(listOf(AlertData("AI health analysis temporarily unavailable", "warning", false)), false)
                             }
                         }
-
-                        lastAlertMessage = responseText
-                        lastStatusWasPerfect = isPerfect
-                    }
+                    )
+                } catch (e: Exception) {
+                    Log.e("HomeActivity", "❌ Exception during AI analysis: ${e.message}")
                 }
-
-                aiResponse.onFailure { error ->
-                    Log.e("HomeActivity", "❌ AI API error: ${error.message}")
-                }
-            } else {
-                Log.d("HomeActivity", "⏳ No sensor data available yet")
             }
         }
+
     } catch (e: Exception) {
         Log.e("HomeActivity", "❌ Error in team health monitoring: ${e.message}")
-    }
-}
-
-private suspend fun subscribeToTeamMqttTopics(
-    mqttHelper: MQTTHelper,
-    teamUserIds: List<String>,
-    onSensorData: (String, SensorRecord) -> Unit
-) = withContext(Dispatchers.IO) {
-    try {
-        teamUserIds.forEach { userId ->
-            mqttHelper.connectAndSubscribeToUser(
-                userId = userId,
-                onConnected = {
-                    Log.d("HomeActivity", "✅ Connected to user $userId MQTT topic")
-                },
-                onLocationUpdate = { sensorRecord ->
-                    // Ensure we're using the correct userId as the key
-                    Log.d("HomeActivity", "📊 Received sensor data for user: $userId")
-                    onSensorData(userId, sensorRecord)
-                },
-                onError = { error ->
-                    Log.e("HomeActivity", "❌ Error subscribing to user $userId: $error")
-                }
-            )
-        }
-    } catch (e: Exception) {
-        Log.e("HomeActivity", "❌ Error subscribing to team MQTT topics: ${e.message}")
+        onAlertsUpdate(listOf(AlertData("Health monitoring error: ${e.message}", "error", false)), false)
+    } finally {
+        listeners.forEach { it.remove() }
     }
 }
 
@@ -1410,41 +1490,67 @@ private fun sendDangerNotification(context: Context, message: String) {
     try {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
 
-        // Check for notification permission on Android 13+
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            if (androidx.core.content.ContextCompat.checkSelfPermission(
-                    context,
-                    android.Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                Log.w("HomeActivity", "POST_NOTIFICATIONS permission not granted, cannot send notification")
-                return // Exit early if permission not granted
-            }
-        }
-
         // Create notification channel for Android 8.0+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val channel = android.app.NotificationChannel(
-                "team_alerts",
-                "Team Health Alerts",
+                "emergency_channel",
+                "Emergency Alerts",
                 android.app.NotificationManager.IMPORTANCE_HIGH
-            )
+            ).apply {
+                description = "Critical health alerts for team members"
+                enableVibration(true)
+                enableLights(true)
+                lightColor = android.graphics.Color.RED
+                setSound(
+                    android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM),
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+            }
             notificationManager.createNotificationChannel(channel)
         }
 
-        val notification = androidx.core.app.NotificationCompat.Builder(context, "team_alerts")
-            .setContentTitle("Team Health Alert")
+        val notification = NotificationCompat.Builder(context, "emergency_channel")
+            .setContentTitle("🚨 EMERGENCY ALERT")
             .setContentText(message)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
+            .setVibrate(longArrayOf(0, 1000, 500, 1000, 500, 1000))
+            .setLights(android.graphics.Color.RED, 1000, 1000)
+            .setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setFullScreenIntent(
+                android.app.PendingIntent.getActivity(
+                    context,
+                    0,
+                    Intent(context, HomeActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    },
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                ),
+                true
+            )
             .build()
 
         notificationManager.notify(System.currentTimeMillis().toInt(), notification)
-        Log.d("HomeActivity", "Notification sent: $message")
+        Log.d("HomeActivity", "🔔 Emergency notification sent: $message")
 
+        // Also show a toast for immediate visibility
+        if (context is android.app.Activity) {
+            context.runOnUiThread {
+                android.widget.Toast.makeText(
+                    context,
+                    "EMERGENCY: $message",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        }
     } catch (e: Exception) {
-        Log.e("HomeActivity", "Error sending notification: ${e.message}")
+        Log.e("HomeActivity", "❌ Failed to send emergency notification: ${e.message}")
     }
 }
 
