@@ -35,6 +35,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat
 import com.example.cyclink.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class TeamMapActivity : ComponentActivity() {
     private lateinit var mqttHelper: MQTTHelper
@@ -144,26 +147,32 @@ fun TeamMapScreen(mqttHelper: MQTTHelper, db: FirebaseFirestore, auth: FirebaseA
     LaunchedEffect(teamMembers) {
         if (teamMembers.isNotEmpty()) {
             teamMembers.forEach { member ->
-                mqttHelper.connectAndSubscribeToUser(
-                    userId = member.id,
-                    onConnected = {
-                        Log.d("TeamMapActivity", "Connected to MQTT for team member: ${member.name}")
-                    },
-                    onLocationUpdate = { sensorRecord ->
-                        val newLocation = LatLng(sensorRecord.latitude, sensorRecord.longitude)
-                        memberLocations = memberLocations.toMutableMap().apply {
-                            put(member.id, newLocation)
-                        }
-                        memberLastSeen = memberLastSeen.toMutableMap().apply {
-                            put(member.id, System.currentTimeMillis())
-                        }
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        mqttHelper.connectAndSubscribeToUser(
+                            userId = member.id,
+                            onConnected = {
+                                Log.d("TeamMapActivity", "Connected to MQTT for team member: ${member.name}")
+                            },
+                            onLocationUpdate = { sensorRecord ->
+                                val newLocation = LatLng(sensorRecord.latitude, sensorRecord.longitude)
+                                memberLocations = memberLocations.toMutableMap().apply {
+                                    put(member.id, newLocation)
+                                }
+                                memberLastSeen = memberLastSeen.toMutableMap().apply {
+                                    put(member.id, System.currentTimeMillis())
+                                }
 
-                        Log.d("TeamMapActivity", "Location updated for ${member.name}: ${sensorRecord.latitude}, ${sensorRecord.longitude}")
-                    },
-                    onError = { error ->
-                        Log.e("TeamMapActivity", "MQTT connection error for ${member.name}: $error")
+                                Log.d("TeamMapActivity", "Location updated for ${member.name}: ${sensorRecord.latitude}, ${sensorRecord.longitude}")
+                            },
+                            onError = { error ->
+                                Log.e("TeamMapActivity", "MQTT connection error for ${member.name}: $error")
+                            }
+                        )
+                    } catch (e: Exception) {
+
                     }
-                )
+                }
             }
         }
     }

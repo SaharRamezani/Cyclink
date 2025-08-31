@@ -33,6 +33,9 @@ import com.example.cyclink.helpers.MQTTHelper
 import com.example.cyclink.helpers.SensorRecord
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class TeamDashboardActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -303,19 +306,25 @@ private fun subscribeToUserMqtt(
     userId: String,
     onSensorData: (SensorRecord) -> Unit
 ) {
-    mqttHelper.connectAndSubscribeToUser(
-        userId = userId,
-        onConnected = {
-            Log.d("TeamDashboard", "✅ Connected to MQTT for user: $userId")
-        },
-        onLocationUpdate = { sensorRecord ->
-            Log.d("TeamDashboard", "📍 Received sensor data for $userId: $sensorRecord")
-            onSensorData(sensorRecord)
-        },
-        onError = { error ->
-            Log.e("TeamDashboard", "❌ MQTT error for user $userId: $error")
+    CoroutineScope(Dispatchers.IO).launch {
+        try {
+            mqttHelper.connectAndSubscribeToUser(
+                userId = userId,
+                onConnected = {
+                    Log.d("TeamDashboard", "✅ Connected to MQTT for user: $userId")
+                },
+                onLocationUpdate = { sensorRecord ->
+                    Log.d("TeamDashboard", "📍 Received sensor data for $userId: $sensorRecord")
+                    onSensorData(sensorRecord)
+                },
+                onError = { error ->
+                    Log.e("TeamDashboard", "❌ MQTT error for user $userId: $error")
+                }
+            )
+        } catch (e: Exception) {
+
         }
-    )
+    }
 }
 
 @Composable
