@@ -1094,15 +1094,20 @@ fun HomeScreen(requestPermissions: () -> Unit = {}) {
             }
 
             // Start MQTT regardless (but saves will be skipped without GPS)
-            mqttHelper.connect(
-                onConnected = {
-                    Log.d("HomeActivity", "✅ MQTT connected")
-                },
-                onError = { error ->
-                    Log.e("HomeActivity", "❌ MQTT error: $error")
-                },
-                onSensorDataReceived = onMQTTSensorDataReceived
-            )
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    mqttHelper.connect(
+                        onConnected = {
+                            Log.d("HomeActivity", "✅ MQTT connected")
+                        },
+                        onError = { error ->
+                            Log.e("HomeActivity", "❌ MQTT error: $error")
+                        },
+                        onSensorDataReceived = onMQTTSensorDataReceived
+                    )
+                } catch (e: Exception) {
+                }
+            }
         } else {
             Log.d("HomeActivity", "=== STOPPING RIDE SERVICES ===")
             gpsHelper.stopLocationUpdates()

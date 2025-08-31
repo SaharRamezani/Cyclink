@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 class MQTTHelper(private val context: Context) {
     private var mqttClient: MqttClient? = null
-    private val brokerUrl = "tcp://192.168.103.151:1883"
+    private val brokerUrl = "tcp://192.168.232.151:1883"
     private val clientId = "CyclinkApp_${System.currentTimeMillis()}"
 
     companion object {

@@ -18,6 +18,9 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
 import kotlinx.serialization.json.Json
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MemberMapActivity : ComponentActivity() {
     private lateinit var mqttHelper: MQTTHelper
@@ -67,26 +70,31 @@ fun MapScreen(mqttHelper: MQTTHelper, userId: String) {
     // Connect to MQTT and subscribe to user-specific topic
     LaunchedEffect(userId) {
         if (userId.isNotEmpty()) {
-            mqttHelper.connectAndSubscribeToUser(
-                userId = userId,
-                onConnected = {
-                    Log.d("MemberMapActivity", "Connected to MQTT for user: $userId")
-                },
-                onLocationUpdate = { sensorRecord ->
-                    // Update location when new sensor data is received
-                    val newLocation = LatLng(sensorRecord.latitude, sensorRecord.longitude)
-                    userLocation = newLocation
-                    isLocationReceived = true
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    mqttHelper.connectAndSubscribeToUser(
+                        userId = userId,
+                        onConnected = {
+                            Log.d("MemberMapActivity", "Connected to MQTT for user: $userId")
+                        },
+                        onLocationUpdate = { sensorRecord ->
+                            // Update location when new sensor data is received
+                            val newLocation = LatLng(sensorRecord.latitude, sensorRecord.longitude)
+                            userLocation = newLocation
+                            isLocationReceived = true
 
-                    // Update marker position
-                    markerState.position = newLocation
+                            // Update marker position
+                            markerState.position = newLocation
 
-                    Log.d("MemberMapActivity", "Location updated: ${sensorRecord.latitude}, ${sensorRecord.longitude}")
-                },
-                onError = { error ->
-                    Log.e("MemberMapActivity", "MQTT connection error: $error")
+                            Log.d("MemberMapActivity", "Location updated: ${sensorRecord.latitude}, ${sensorRecord.longitude}")
+                        },
+                        onError = { error ->
+                            Log.e("MemberMapActivity", "MQTT connection error: $error")
+                        }
+                    )
+                } catch (e: Exception) {
                 }
-            )
+            }
         }
     }
 
