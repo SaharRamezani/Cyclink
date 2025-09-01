@@ -1,4 +1,4 @@
-# Cyclink App - Concise README
+# Cyclink App
 
 Cyclink is a mobile application designed for cyclists, offering a range of features to enhance their riding experience, facilitate team collaboration, and track their activities.
 
