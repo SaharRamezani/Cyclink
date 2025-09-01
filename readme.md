@@ -10,11 +10,11 @@ Cyclink allows users to create and join teams, manage team members, and view tea
 
 *   **Team Overview:** See a ranking of team members based on their cycling statistics.
 
-    ![Team Overview](screenshots/main_page_screenshot.jpg)
+    <img src="screenshots/main_page_screenshot.jpg" width="300">
 
 *   **Member Tracking:** View individual member details and their locations on a map.
 
-    ![Team Chat](screenshots/map_screenshot.jpg)
+    <img src="screenshots/map_screenshot.jpg" width="300">
 
 ### Activity Tracking & History
 
@@ -22,7 +22,7 @@ Track your cycling activities and review your performance over time.
 
 *   **Ride History:** Records of past rides.
 
-    ![Ride History](screenshots/ride_history_screenshot.jpg)
+    <img src="screenshots/ride_history_screenshot.jpg" width="300">
 
 *   **GPS Integration:** Utilize GPS to record routes and provide accurate location data.
 
@@ -30,17 +30,17 @@ Track your cycling activities and review your performance over time.
 
 *   **Help Chat:** Get real-time help using AI-powered chat.
 
-    ![Help Chat](screenshots/chat_feature_screenshot.jpg)
+    <img src="screenshots/chat_feature_screenshot.jpg" width="300">
 
 ### User Authentication & Profile
 
 *   **Google Sign-In:** Secure and convenient authentication using Google accounts.
 
-    ![Help Chat](screenshots/login_screenshot.jpg)
+    <img src="screenshots/login_screenshot.jpg" width="300">
 
 *   **User Profile:** Manage personal account information.
 
-    ![Help Chat](screenshots/profile_screenshot.jpg)
+    <img src="screenshots/profile_screenshot.jpg" width="300">
 
 ## Setup and Configuration
 
