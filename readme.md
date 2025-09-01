@@ -10,12 +10,12 @@ Cyclink allows users to create and join teams, manage team members, and view tea
 
 *   **Team Overview:** See a ranking of team members based on their cycling statistics.
 
-    <img src="screenshots/main_page_screenshot.jpg" width="300">
+    <img src="screenshots/main_page_screenshot.jpg" width="250">
 
 *   **Member Tracking:** View individual member details and their locations on a map.
 
-    <img src="screenshots/map_screenshot.jpg" width="300">
-    <img src="screenshots/map_normal_screenshot.jpg" width="300">
+    <img src="screenshots/map_screenshot.jpg" width="250">
+    <img src="screenshots/map_normal_screenshot.jpg" width="250">
 
 ### Activity Tracking & History
 
@@ -23,8 +23,8 @@ Track your cycling activities and review your performance over time.
 
 *   **Ride History:** Records of past rides.
 
-    <img src="screenshots/save_ride_button_screenshot.jpg" width="300">
-    <img src="screenshots/ride_history_screenshot.jpg" width="300">
+    <img src="screenshots/save_ride_button_screenshot.jpg" width="250">
+    <img src="screenshots/ride_history_screenshot.jpg" width="250">
 
 *   **GPS Integration:** Utilize GPS to record routes and provide accurate location data.
 
@@ -32,23 +32,23 @@ Track your cycling activities and review your performance over time.
 
 *   **Help Chat:** Get real-time help using AI-powered chat.
 
-    <img src="screenshots/chat_feature_screenshot.jpg" width="300">
+    <img src="screenshots/chat_feature_screenshot.jpg" width="250">
 
 ### User Authentication & Profile
 
 *   **Google Sign-In:** Secure and convenient authentication using Google accounts.
 
-    <img src="screenshots/login_screenshot.jpg" width="300">
+    <img src="screenshots/login_screenshot.jpg" width="250">
 
 *   **Team Joining/Creation:** join existing teams or create new ones.
 
-    <img src="screenshots/join_create_team_screenshot.jpg" width="300">
-    <img src="screenshots/join_team_screenshot.jpg" width="300">
-    <img src="screenshots/create_team_screenshot.jpg" width="300">
+    <img src="screenshots/join_create_team_screenshot.jpg" width="250">
+    <img src="screenshots/join_team_screenshot.jpg" width="250">
+    <img src="screenshots/create_team_screenshot.jpg" width="250">
 
 *   **User Profile:** Manage personal account information.
 
-    <img src="screenshots/profile_screenshot.jpg" width="300">
+    <img src="screenshots/profile_screenshot.jpg" width="250">
 
 ## Setup and Configuration
 
