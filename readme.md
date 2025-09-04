@@ -15,6 +15,10 @@ To run the Cyclink app, the following configuration files and API credentials ar
 
 Ensure these are correctly configured in your project for all features to function as intended.
 
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
 ## Features
 
 ### Team Management
