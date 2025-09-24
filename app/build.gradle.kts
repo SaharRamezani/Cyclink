@@ -19,6 +19,16 @@ android {
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        buildConfigField(
+            "String",
+            "MQTT_USERNAME",
+            "\"${project.findProperty("MQTT_USERNAME") ?: ""}\""
+        )
+        buildConfigField(
+            "String",
+            "MQTT_PASSWORD",
+            "\"${project.findProperty("MQTT_PASSWORD") ?: ""}\""
+        )
         // Add manifest placeholders here for all build types
         manifestPlaceholders["MAPS_API_KEY"] = project.findProperty("MAPS_API_KEY")?.toString() ?: ""
     }

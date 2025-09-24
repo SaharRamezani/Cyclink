@@ -7,11 +7,12 @@ import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
+import com.example.cyclink.BuildConfig
 import org.json.JSONObject
 
 class MQTTHelper(private val context: Context) {
     private var mqttClient: MqttClient? = null
-    private val brokerUrl = "tcp://192.168.232.151:1883"
+    private val brokerUrl = "tcp://212.78.1.205:1883"
     private val clientId = "CyclinkApp_${System.currentTimeMillis()}"
 
     companion object {
@@ -144,6 +145,8 @@ class MQTTHelper(private val context: Context) {
                 isCleanSession = true
                 connectionTimeout = 10
                 keepAliveInterval = 30
+                userName = BuildConfig.MQTT_USERNAME
+                password = BuildConfig.MQTT_PASSWORD.toCharArray()
             }
 
             mqttClient?.setCallback(object : MqttCallback {
