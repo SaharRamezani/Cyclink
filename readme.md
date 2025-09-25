@@ -19,6 +19,10 @@ Ensure these are correctly configured in your project for all features to functi
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
+## Release
+
+You can download the app from [here](https://github.com/SaharRamezani/Cyclink/releases/tag/v1.0.0).
+
 ## Features
 
 ### Team Management
